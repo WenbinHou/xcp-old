@@ -1,0 +1,11 @@
+# Ignore IDE files
+/.idea/
+/.vs/
+/.vscode/
+/CMakeSettings.json
+
+# Ignore build files
+/cmake-build-*/
+/out/
+/build/
+/build-*/
