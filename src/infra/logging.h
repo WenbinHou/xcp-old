@@ -36,6 +36,25 @@ namespace infra
         }
     }
 
+    inline void set_logging_verbosity(const int verbosity)
+    {
+        if (verbosity >= 2) {
+            details::g_logger->set_level(spdlog::level::trace);
+        }
+        else if (verbosity == 1) {
+            details::g_logger->set_level(spdlog::level::debug);
+        }
+        else if (verbosity == 0) {
+            details::g_logger->set_level(spdlog::level::info);
+        }
+        else if (verbosity == -1) {
+            details::g_logger->set_level(spdlog::level::warn);
+        }
+        else {  // verbosity <= -2
+            details::g_logger->set_level(spdlog::level::err);
+        }
+    }
+
 
 #define LOG_ERROR(...)      SPDLOG_LOGGER_ERROR(::infra::details::g_logger, __VA_ARGS__)
 #define LOG_WARN(...)       SPDLOG_LOGGER_WARN(::infra::details::g_logger, __VA_ARGS__)

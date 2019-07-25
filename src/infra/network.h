@@ -18,6 +18,7 @@ namespace infra
             LOG_ERROR("WSAStartup() failed with {} ({})", ret, str_getlasterror(ret));
             throw std::system_error(std::error_code(ret, std::system_category()), "WSAStartup() failed");
         }
+        //LOG_TRACE("WSAStartup() done");  // never displayed as default logging level is INFO
 #elif PLATFORM_LINUX
 #else
 #   error "Unknown platform"
@@ -32,11 +33,68 @@ namespace infra
             LOG_ERROR("WSACleanup() failed. WSAGetLastError = {} ({})", wsagle, str_getlasterror(wsagle));
             throw std::system_error(std::error_code((int)wsagle, std::system_category()), "WSACleanup() failed");
         }
+        LOG_TRACE("WSACleanup() done");
 #elif PLATFORM_LINUX
 #else
 #   error "Unknown platform"
 #endif
     }
+
+
+    union tcp_sockaddr
+    {
+    public:
+        struct sockaddr_storage addr;
+        struct sockaddr_in addr_ipv4;
+        struct sockaddr_in6 addr_ipv6;
+
+    public:
+        XCP_DEFAULT_COPY_CONSTRUCTOR(tcp_sockaddr)
+        XCP_DEFAULT_MOVE_CONSTRUCTOR(tcp_sockaddr)
+        tcp_sockaddr() = default;
+
+        uint16_t family() const noexcept { return addr.ss_family; }
+
+        const sockaddr* address() const noexcept { return (const sockaddr*)&addr; }
+        sockaddr* address() noexcept { return (sockaddr*)&addr; }
+
+        socklen_t socklen() const noexcept;
+
+        std::string to_string() const;
+    };
+
+
+    template<bool _WithRepeats>
+    struct basic_tcp_endpoint
+    {
+    public:
+        std::string host { };
+        std::optional<uint16_t> port { };
+        std::optional<size_t> repeats { };
+
+        std::vector<tcp_sockaddr> resolved_sockaddrs;
+
+    public:
+        XCP_DEFAULT_COPY_CONSTRUCTOR(basic_tcp_endpoint)
+
+        XCP_DEFAULT_MOVE_ASSIGN(basic_tcp_endpoint)
+
+        basic_tcp_endpoint(basic_tcp_endpoint&& other) noexcept
+        {
+            XCP_MOVE_FROM_OTHER(host);
+            XCP_MOVE_FROM_OTHER(port);
+            XCP_MOVE_FROM_OTHER(repeats);
+        }
+
+        basic_tcp_endpoint() = default;
+
+        bool parse(const std::string& value);
+        bool resolve();
+        std::string to_string() const;
+    };
+
+    typedef basic_tcp_endpoint</*_WithRepeats*/false> tcp_endpoint;
+    typedef basic_tcp_endpoint</*_WithRepeats*/true> tcp_endpoint_repeatable;
 
 }  // namespace infra
 
