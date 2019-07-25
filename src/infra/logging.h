@@ -18,6 +18,7 @@ namespace infra
         try {
             details::g_logger = spdlog::stdout_color_mt("console", spdlog::color_mode::automatic);
             details::g_logger->set_pattern("[%Y-%m-%d %T.%e %z] [%t][%s:%#] %^%L: %v%$    // %!");
+            details::g_logger->flush_on(spdlog::level::info);
             details::g_logger->set_level(spdlog::level::info);
         }
         catch (const std::exception& ex) {
@@ -34,7 +35,7 @@ namespace infra
             details::g_logger.reset();
         }
     }
-}  // namespace infra
+
 
 #define LOG_ERROR(...)      SPDLOG_LOGGER_ERROR(::infra::details::g_logger, __VA_ARGS__)
 #define LOG_WARN(...)       SPDLOG_LOGGER_WARN(::infra::details::g_logger, __VA_ARGS__)
@@ -42,5 +43,56 @@ namespace infra
 #define LOG_DEBUG(...)      SPDLOG_LOGGER_DEBUG(::infra::details::g_logger, __VA_ARGS__)
 #define LOG_TRACE(...)      SPDLOG_LOGGER_TRACE(::infra::details::g_logger, __VA_ARGS__)
 
+
+
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+
+    namespace details
+    {
+        inline std::unordered_map<int, const char*> g_getlasterror_message { };  // NOLINT(cert-err58-cpp)
+        inline std::shared_mutex g_getlasterror_message_mutex { };
+    }  // namespace details
+
+    template<typename TIntOrDword>
+    inline const char* str_getlasterror(TIntOrDword const gle)
+    {
+        static_assert(std::is_same_v<TIntOrDword, int> || std::is_same_v<TIntOrDword, DWORD>);
+
+        {
+            std::shared_lock<std::shared_mutex> lock(details::g_getlasterror_message_mutex);
+            const auto it = details::g_getlasterror_message.find(gle);
+            if (it != details::g_getlasterror_message.end()) {
+                return it->second;
+            }
+        }
+
+        char* msg = nullptr;
+        DWORD ret = FormatMessageA(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
+            NULL,
+            (DWORD)gle,
+            MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),  // en-US
+            (LPSTR)&msg,
+            0,
+            NULL);
+        if (ret == 0) {
+            LOG_ERROR("FormatMessageA(dwMessageId={}) failed. GetLastError = {}", gle, GetLastError());
+            return "UNKNOWN_ERROR_MESSAGE";
+        }
+
+        LOG_TRACE("Formatting system error code {} got: {}", gle, msg);
+        {
+            std::unique_lock<std::shared_mutex> lock(details::g_getlasterror_message_mutex);
+            details::g_getlasterror_message[gle] = msg;
+        }
+        return msg;
+    }
+
+#elif PLATFORM_LINUX
+#else
+#   error "Unknown platform"
+#endif
+
+}  // namespace infra
 
 #endif  // !defined(_XCP_INFRA_LOGGING_H_INCLUDED_)

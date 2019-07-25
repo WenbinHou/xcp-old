@@ -142,6 +142,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
