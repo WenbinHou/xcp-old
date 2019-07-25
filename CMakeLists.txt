@@ -203,6 +203,14 @@ else()
     message(FATAL_ERROR "[xcp] Unknown compiler")
 endif()
 
+# Link with network libraries on Windows/Cygwin
+if (PLATFORM_WINDOWS OR PLATFORM_CYGWIN)
+    link_libraries(ws2_32)
+elseif (PLATFORM_LINUX)
+else()
+    message(FATAL_ERROR "Unknown platform")
+endif()
+
 
 
 #===============================================================================

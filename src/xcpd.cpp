@@ -1,7 +1,7 @@
-#include <cstdio>
+#include "infra/infra.h"
 
 int main()
 {
-    printf("Hello from xcpd\n");
+    LOG_INFO("Hello from xcpd");
     return 0;
 }
