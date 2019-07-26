@@ -96,5 +96,8 @@
 #define __TEXTIFY(_X_)  #_X_
 #define TEXTIFY(_X_)    __TEXTIFY(_X_)
 
+#define THROW_SYSTEM_ERROR(_IntErr_, _Func_) \
+    throw std::system_error(std::error_code((_IntErr_), std::system_category()), #_Func_ "() failed");
+
 
 #endif  // !defined(_XCP_INFRA_MACRO_H_INCLUDED_)

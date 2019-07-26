@@ -4,5 +4,7 @@
 #include "infra/infra.h"
 
 #include "program_options.h"
+#include "server.h"
+
 
 #endif  // !defined(_XCP_COMMON_H_INCLUDED_)

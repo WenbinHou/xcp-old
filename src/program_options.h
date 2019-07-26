@@ -9,7 +9,7 @@
 //
 // For CLI11
 //
-namespace CLI
+namespace infra
 {
     template<bool _WithRepeats>
     std::istream& operator >>(std::istream& iss, infra::basic_tcp_endpoint<_WithRepeats>& ep)
@@ -22,7 +22,7 @@ namespace CLI
         }
         return iss;
     }
-}  // namespace CLI
+}  // namespace infra
 
 
 namespace xcp

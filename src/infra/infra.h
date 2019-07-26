@@ -6,6 +6,8 @@
 
 #include "logging.h"
 #include "sweeper.h"
+#include "semaphore.h"
+#include "sighandle.h"
 
 #include "network.h"
 
@@ -29,6 +31,9 @@ namespace infra
 
             // Initialize network
             global_initialize_network();
+
+            // Initialize signal handler
+            sighandle::setup_signal_handler();
         }
 
         ~global_initialize_finalize_t() noexcept

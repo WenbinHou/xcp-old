@@ -41,6 +41,42 @@ namespace infra
     }
 
 
+    //
+    // OS-specific "socket" type
+    //
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+    typedef SOCKET socket_t;
+    static constexpr const SOCKET INVALID_SOCKET_VALUE = INVALID_SOCKET;
+
+    inline int close_socket(SOCKET sock) noexcept {
+        shutdown(sock, SD_BOTH);
+        return closesocket(sock);
+    }
+
+    inline std::string socket_error_description() {
+        const int wsagle = WSAGetLastError();
+        return std::string("WSAGetLastError = ") + std::to_string(wsagle) + " (" + str_getlasterror(wsagle) + ")";
+    }
+
+#elif PLATFORM_LINUX
+    typedef int socket_t;
+    static constexpr const int INVALID_SOCKET_VALUE = -1;
+
+    inline int close_socket(int sock) noexcept {
+        shutdown(sock, SHUT_RDWR);
+        return close(sock);
+    }
+
+    inline std::string socket_error_description() {
+        return std::string("errno = ") + std::to_string(errno) + " (" + strerror(errno) + ")";
+    }
+
+#else
+#   error "Unknown platform"
+#endif
+
+
+
     union tcp_sockaddr
     {
     public:
@@ -71,7 +107,6 @@ namespace infra
         std::string host { };
         std::optional<uint16_t> port { };
         std::optional<size_t> repeats { };
-
         std::vector<tcp_sockaddr> resolved_sockaddrs;
 
     public:
@@ -84,6 +119,7 @@ namespace infra
             XCP_MOVE_FROM_OTHER(host);
             XCP_MOVE_FROM_OTHER(port);
             XCP_MOVE_FROM_OTHER(repeats);
+            XCP_MOVE_FROM_OTHER(resolved_sockaddrs);
         }
 
         basic_tcp_endpoint() = default;

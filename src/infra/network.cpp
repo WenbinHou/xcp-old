@@ -173,7 +173,7 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::resolve()
         &hint,
         &results);
     if (ret != 0) {
-        LOG_ERROR("getaddrinfo() '{}' failed with {} ({})", host, ret, str_getlasterror(ret));
+        LOG_ERROR("getaddrinfo() '{}' failed with {} ({})", host, ret, gai_strerror(ret));
         return false;
     }
 

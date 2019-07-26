@@ -78,6 +78,7 @@
 #       include <io.h>
 #   elif PLATFORM_CYGWIN
 #       include <unistd.h>
+#       include <semaphore.h>
 #   else
 #       error "Unknown platform"
 #   endif
