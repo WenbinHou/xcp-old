@@ -17,6 +17,20 @@ bool server_channel_state::init()
             continue;
         }
 
+        // Enable SO_REUSEADDR, SO_REUSEPORT
+        constexpr int value_1 = 1;
+        if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&value_1, sizeof(value_1)) != 0) {
+            LOG_WARN("setsockopt(SO_REUSEADDR) failed. {} (skipped)", socket_error_description());
+            continue;
+        }
+
+#if defined(SO_REUSEPORT)
+        if (setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, (const char*)&value_1, sizeof(value_1)) != 0) {
+            LOG_WARN("setsockopt(SO_REUSEPORT) failed. {} (skipped)", socket_error_description());
+            continue;
+        }
+#endif
+
         sweeper sweep = [&]() {
             close_socket(sock);
             sock = INVALID_SOCKET_VALUE;
@@ -217,24 +231,14 @@ void server_portal_state::fn_thread_accept()
         }
         LOG_DEBUG("Accepted from portal: {}", peer_addr.to_string());
 
-        // TODO
-        //{
-        //    std::lock_guard<std::mutex> lock(g_pending_client_portals_mutex);
-        //    if (sighandle::is_exit_required()) {
-        //        LOG_DEBUG("Exit requried. Stop accept() on server portal {}", bound_local_endpoint.to_string());
-        //        close_socket(accepted_sock);
-        //        break;
-        //    }
-        //    g_pending_client_portals.insert(accepted_sock);
-        //}
-
-        //thread_pool::run([&, accepted_sock, peer_addr]() {
-        //    fn_task_accepted_portal(accepted_sock, peer_addr);
-        //});
+        std::thread thr([accepted_sock, peer_addr]() {
+            fn_task_accepted_portal(accepted_sock, peer_addr);
+        });
+        thr.detach();
     }
 }
 
-void server_portal_state::fn_task_accepted_portal(socket_t accepted_sock, const tcp_sockaddr peer_addr)
+/*static*/ void server_portal_state::fn_task_accepted_portal(socket_t accepted_sock, const tcp_sockaddr peer_addr)
 {
     sweeper sweep = [&]() {
         if (accepted_sock != INVALID_SOCKET_VALUE) {
@@ -253,19 +257,18 @@ void server_portal_state::fn_task_accepted_portal(socket_t accepted_sock, const 
     //    return true;
     //};
 
-    //// Receive client identity from portal
-    //identity_t identity;
-    //{
-    //    const ssize_t cnt = recv(accepted_sock, &identity, sizeof(identity), MSG_WAITALL);
-    //    if (cnt != sizeof(identity)) {
-    //        LOG_TRACE("Server portal: receive identity from peer {} expects {}, but returns {}. {}",
-    //                     peer_addr.to_string(), sizeof(identity), cnt, socket_error_description());
-    //        [[maybe_unused]] const bool dummy = erase_from_pending_client_portals();
-    //        return;
-    //    }
+    // Receive client identity from portal
+    identity_t identity;
+    {
+        const int cnt = (int)recv(accepted_sock, (char*)&identity, sizeof(identity), MSG_WAITALL);
+        if (cnt != (int)sizeof(identity)) {
+            LOG_TRACE("Server portal: receive identity from peer {} expects {}, but returns {}. {}",
+                      peer_addr.to_string(), sizeof(identity), cnt, socket_error_description());
+            return;
+        }
 
-    //    LOG_TRACE("Server portal: received identity from peer {}", peer_addr.to_string());
-    //}
+        LOG_TRACE("Server portal: received identity from peer {}", peer_addr.to_string());
+    }
 
     //// Create client instance and remove from pending client portals
     //{

@@ -46,7 +46,7 @@ namespace xcp
 
     private:
         void fn_thread_accept();
-        void fn_task_accepted_portal(infra::socket_t accepted_sock, infra::tcp_sockaddr peer_addr);
+        static void fn_task_accepted_portal(infra::socket_t accepted_sock, infra::tcp_sockaddr peer_addr);
 
     public:
         std::thread thread_accept { };

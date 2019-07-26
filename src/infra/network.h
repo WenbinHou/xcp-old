@@ -132,7 +132,57 @@ namespace infra
     typedef basic_tcp_endpoint</*_WithRepeats*/false> tcp_endpoint;
     typedef basic_tcp_endpoint</*_WithRepeats*/true> tcp_endpoint_repeatable;
 
+
+
+    struct identity_t
+    {
+    public:
+        friend struct std::hash<identity_t>;
+
+        void init()
+        {
+            std::random_device rd;
+            _timestamp = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+            _random1 = static_cast<uint32_t>(rd());
+            _random2 = static_cast<uint32_t>(rd());
+        }
+
+        bool operator ==(const identity_t& other) const noexcept
+        {
+            return (_timestamp == other._timestamp) && (_random1 == other._random1) && (_random2 == other._random2);
+        }
+
+        bool operator !=(const identity_t& other) const noexcept
+        {
+            return !(*this == other);
+        }
+
+    private:
+        uint64_t _timestamp = 0;
+        uint32_t _random1 = 0;
+        uint32_t _random2 = 0;
+    };
+
+    static_assert(sizeof(identity_t) == 16);
+
 }  // namespace infra
+
+
+
+//
+// std::hash<> specialization for infra::identity_t
+//
+namespace std
+{
+    template<>
+    struct hash<infra::identity_t>
+    {
+        size_t operator()(const infra::identity_t& x) const noexcept
+        {
+            return static_cast<size_t>(x._timestamp) ^ static_cast<size_t>(x._random1) ^ static_cast<size_t>(x._random2);
+        }
+    };
+}  // namespace std
 
 
 #endif  // !defined(_XCP_INFRA_NETWORK_H_INCLUDED_)
