@@ -1,10 +1,12 @@
 #include "common.h"
 
+using namespace xcp;
+using namespace infra;
+
+
 //==============================================================================
 // struct server_channel_state
 //==============================================================================
-using namespace xcp;
-using namespace infra;
 
 bool server_channel_state::init()
 {

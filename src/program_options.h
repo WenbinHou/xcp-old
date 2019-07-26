@@ -27,6 +27,29 @@ namespace infra
 
 namespace xcp
 {
+    struct host_path
+    {
+    public:
+        bool parse(const std::string& value);
+
+        bool is_remote() const noexcept { return host.has_value(); }
+
+        friend std::istream& operator >>(std::istream& iss, host_path& hp)
+        {
+            std::string value;
+            iss >> value;
+            hp = host_path();
+            if (!hp.parse(value)) {
+                throw CLI::ConversionError(value, "host_path");
+            }
+            return iss;
+        }
+
+    public:
+        std::optional<std::string> host { };
+        std::string path { };
+    };
+
     struct program_options_defaults
     {
         static constexpr const char SERVER_PORTAL_HOST[] = "[::]";
@@ -53,6 +76,10 @@ namespace xcp
     {
     public:
         std::optional<uint16_t> arg_port { };
+        host_path arg_from_path;
+        host_path arg_to_path;
+
+        infra::tcp_endpoint server_portal;
 
     public:
         void add_options(CLI::App& app) override;

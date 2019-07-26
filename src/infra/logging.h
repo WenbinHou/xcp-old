@@ -16,7 +16,7 @@ namespace infra
     inline void global_initialize_logging()
     {
         try {
-            details::g_logger = spdlog::stdout_color_mt("console", spdlog::color_mode::automatic);
+            details::g_logger = spdlog::stderr_color_mt("console", spdlog::color_mode::automatic);
 #if PLATFORM_WINDOWS || PLATFORM_LINUX
             details::g_logger->set_pattern("[%Y-%m-%d %T.%e %z] [%t][%s:%#] %^%L: %v%$    // %!");
 #elif PLATFORM_CYGWIN

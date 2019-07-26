@@ -7,6 +7,35 @@
 
 xcp::xcp_program_options g_xcp_program_options;
 
+std::vector<std::shared_ptr<xcp::client_channel_state>> g_client_channels;
+std::shared_ptr<xcp::client_portal_state> g_client_portal = nullptr;
+
+infra::identity_t g_client_identity;
+
+
+
+//==============================================================================
+// Global functions
+//==============================================================================
+
+bool connect_server_portal()
+{
+    infra::sweeper sweep = [&]() {
+        g_client_portal.reset();
+    };
+
+    //
+    // Connect to server portal
+    //
+    g_client_portal = std::make_shared<xcp::client_portal_state>(g_xcp_program_options.server_portal);
+    if (!g_client_portal->init()) {
+        LOG_ERROR("Init server_portal_state failed for {}", g_xcp_program_options.server_portal.to_string());
+        return false;
+    }
+
+    sweep.suppress_sweep();
+    return true;
+}
 
 
 int main(int argc, char* argv[])
@@ -34,11 +63,34 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    //
-    // adsf
-    //
 
+    //
+    // On-exit sweeper
+    //
+    infra::sweeper exit_sweep = [&]() {
+        // Set exit required flag first!
+        if (!infra::sighandle::is_exit_required()) {
+            infra::sighandle::require_exit();
+        }
 
-    LOG_INFO("Hello from xcp");
+        // Close client portal
+        g_client_portal.reset();
+
+        // Close client channels
+        g_client_channels.clear();
+        
+        LOG_INFO("Bye!");
+    };
+
+    // Connect to server portal
+    if (!connect_server_portal()) {
+        LOG_ERROR("connect_server_portal() failed");
+        return 1;
+    }
+
+    // Wait for exit...
+    LOG_TRACE("Waiting for exit on main thread...");
+    infra::sighandle::wait_for_exit_required();
+
     return 0;
 }

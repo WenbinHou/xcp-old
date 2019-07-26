@@ -6,6 +6,7 @@
 //==============================================================================
 
 xcp::xcpd_program_options g_xcpd_program_options;
+
 std::vector<std::shared_ptr<xcp::server_channel_state>> g_server_channels { };
 std::shared_ptr<xcp::server_portal_state> g_server_portal = nullptr;
 

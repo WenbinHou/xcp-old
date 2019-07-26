@@ -2,6 +2,92 @@
 
 
 //==============================================================================
+// struct host_path
+//==============================================================================
+
+bool xcp::host_path::parse(const std::string& value)
+{
+    // Handle strings like:
+    //  "relative"
+    //  "relative/subpath"
+    //  "/absolute/path"
+    //  "C:"                (on Windows)
+    //  "C:\"               (on Windows)
+    //  "C:/"               (on Windows)
+    //  "C:\absolute\path"  (on Windows)
+    //  "C:/absolute\path"  (on Windows)
+    //  "relative\subpath"
+    //  "hostname:/"
+    //  "hostname:/absolute"
+    //  "127.0.0.1:C:"
+    //  "1.2.3.4:C:\"
+    //  "1.2.3.4:C:/"
+    //  "[::1]:C:\absolute"
+    //  "[1:2:3:4:5:6:7:8]:C:/absolute"
+    //
+    // NOTE:
+    //  Remote path MUST be absolute
+    //  Local path might be absolute or relative
+
+
+    // See:
+    //  https://stackoverflow.com/questions/53497/regular-expression-that-matches-valid-ipv6-addresses
+    //  https://stackoverflow.com/questions/106179/regular-expression-to-match-dns-hostname-or-ip-address
+    // NOTE: re_valid_hostname matches a superset of valid IPv4
+
+    static std::regex* __re = nullptr;
+    if (__re == nullptr) {
+        const std::string re_valid_hostname = R"((?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*(?:[A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]))";
+        const std::string re_valid_ipv6 = R"(\[(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|::(?:[Ff]{4}(?::0{1,4})?:)?(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9]))\])";
+        const std::string re_valid_host = "(?:(?:" + re_valid_hostname + ")|(?:" + re_valid_ipv6 + "))";
+        const std::string re_valid_host_path = "^(?:(" + re_valid_host + "):)?(.+)$";
+        __re = new std::regex(re_valid_host_path, std::regex::optimize);
+    }
+
+    if (value.empty()) return false;
+
+    //
+    // Special handling for Windows driver letters (local path)
+    //
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+    if (value.size() >= 2 && value[1] == ':') {
+        if ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) {
+            if (value.size() == 2 || value[2] == '/' || value[2] == '\\') {
+                host.reset();
+                path = value;
+                return true;
+            }
+        }
+    }
+#elif PLATFORM_LINUX
+#else
+#   error "Unknown platform"
+#endif
+
+
+    std::smatch match;
+    if (!std::regex_match(value, match, *__re)) {
+        return false;
+    }
+
+    {
+        // NOTE: If host is IPv6 surrounded by '[' ']', DO NOT trim the beginning '[' and ending ']'
+        std::string tmp(match[1].str());
+        if (tmp.empty())
+            host.reset();
+        else
+            host = std::move(tmp);
+    }
+
+    path = match[2].str();
+    if (path.empty()) return false;
+
+    return true;
+}
+
+
+
+//==============================================================================
 // struct base_program_options
 //==============================================================================
 
@@ -51,6 +137,20 @@ void xcp::xcp_program_options::add_options(CLI::App& app)
         this->arg_port,
         "Server portal port to connect to");
     opt_port->type_name("<port>");
+
+    CLI::Option* opt_from = app.add_option(
+        "from",
+        this->arg_from_path,
+        "Copy from this path");
+    opt_from->type_name("<from>");
+    opt_from->required();
+
+    CLI::Option* opt_to = app.add_option(
+        "to",
+        this->arg_to_path,
+        "Copy to this path");
+    opt_to->type_name("<to>");
+    opt_to->required();
 }
 
 bool xcp::xcp_program_options::post_process()
@@ -58,6 +158,41 @@ bool xcp::xcp_program_options::post_process()
     if (!base_program_options::post_process()) {
         return false;
     }
+
+    //----------------------------------------------------------------
+    // arg_from_path, arg_to_path
+    //----------------------------------------------------------------
+    if (arg_from_path.is_remote()) {
+        assert(arg_from_path.host.has_value());
+        LOG_INFO("Copy from remote host {} path {}", arg_from_path.host.value(), arg_from_path.path);
+    }
+    else {
+        LOG_INFO("Copy from local path {}", arg_from_path.path);
+    }
+
+    if (arg_to_path.is_remote()) {
+        assert(arg_to_path.host.has_value());
+        LOG_INFO("Copy to remote host {} path {}", arg_to_path.host.value(), arg_to_path.path);
+    }
+    else {
+        LOG_INFO("Copy to local path {}", arg_to_path.path);
+    }
+
+    if (arg_from_path.is_remote() && arg_to_path.is_remote()) {
+        LOG_ERROR("Can't copy between remote hosts");
+        return false;
+    }
+    else if (arg_from_path.is_remote()) {
+        server_portal.host = arg_from_path.host.value();
+    }
+    else if (arg_to_path.is_remote()) {
+        server_portal.host = arg_to_path.host.value();
+    }
+    else {
+        LOG_ERROR("Copy from local to local is to be supported");  // TODO
+        return false;
+    }
+
 
     //----------------------------------------------------------------
     // arg_port
@@ -71,91 +206,19 @@ bool xcp::xcp_program_options::post_process()
     else {  // !arg_portal->port.has_value()
         arg_port = program_options_defaults::SERVER_PORTAL_PORT;
     }
+    server_portal.port = arg_port.value();
 
-    LOG_INFO("Server portal port: {}", arg_port.value());
-    /*
-    if (!arg_portal->resolve()) {
-        LOG_ERROR("Can't resolve specified server portal: {}", arg_portal->to_string());
+
+    LOG_INFO("Server portal: {}", server_portal.to_string());
+    if (!server_portal.resolve()) {
+        LOG_ERROR("Can't resolve specified server portal: {}", server_portal.to_string());
         return false;
     }
     else {
-        for (const infra::tcp_sockaddr& addr : arg_portal->resolved_sockaddrs) {
+        for (const infra::tcp_sockaddr& addr : server_portal.resolved_sockaddrs) {
             LOG_DEBUG("  Candidate server portal endpoint: {}", addr.to_string());
         }
     }
-    */
-
-
-    //----------------------------------------------------------------
-    // arg_local_endpoint
-    //----------------------------------------------------------------
-    /*
-    assert(arg_local_endpoint != nullptr);
-
-    if (is_reverse_forwarding) {  // local connect (reverse forwarding)
-        if (arg_local_endpoint->port.has_value()) {
-            if (arg_local_endpoint->port.value() == 0) {
-                LOG_ERROR("Local endpoint port 0 is invalid: {} (reverse forwarding)", arg_local_endpoint->to_string());
-                return false;
-            }
-        }
-        else {
-            LOG_ERROR("Local endpoint port requried: {} (reverse forwarding)", arg_local_endpoint->to_string());
-            return false;
-        }
-        LOG_INFO("Local endpoint: {} (reverse forwarding)", arg_local_endpoint->to_string());
-    }
-    else {  // local listen
-        if (arg_local_endpoint->port.has_value()) {
-            LOG_TRACE("Local endpoint binds to port {}", arg_local_endpoint->port.value());
-        }
-        else {
-            arg_local_endpoint->port = static_cast<uint16_t>(0);
-            LOG_TRACE("Local endpoint binds to random port");
-        }
-        LOG_INFO("Local endpoint: {}", arg_local_endpoint->to_string());
-    }
-
-    if (!arg_local_endpoint->resolve()) {
-        LOG_ERROR("Can't resolve specified local endpoint: {}", arg_local_endpoint->to_string());
-        return false;
-    }
-    else {
-        for (const infra::tcp_sockaddr& addr : arg_local_endpoint->resolved_sockaddrs) {
-            LOG_DEBUG("  Candidate local endpoint: {}", addr.to_string());
-        }
-    }
-
-
-    //----------------------------------------------------------------
-    // arg_remote_endpoint
-    //----------------------------------------------------------------
-    assert(arg_remote_endpoint != nullptr);
-
-    if (is_reverse_forwarding) {  // remote listen (reverse forwarding)
-        if (arg_remote_endpoint->port.has_value()) {
-            LOG_TRACE("Remote endpoint binds to port {} (reverse forwarding)", arg_remote_endpoint->port.value());
-        }
-        else {
-            arg_remote_endpoint->port = static_cast<uint16_t>(0);
-            LOG_TRACE("Remote endpoint binds to random port (reverse forwarding)");
-        }
-        LOG_INFO("Remote endpoint: {} (reverse forwarding)", arg_remote_endpoint->to_string());
-    }
-    else {  // remote connect
-        if (arg_remote_endpoint->port.has_value()) {
-            if (arg_remote_endpoint->port.value() == 0) {
-                LOG_ERROR("Remote endpoint port 0 is invalid: {}", arg_remote_endpoint->to_string());
-                return false;
-            }
-        }
-        else {
-            LOG_ERROR("Remote endpoint port requried: {}", arg_remote_endpoint->to_string());
-            return false;
-        }
-        LOG_INFO("Remote endpoint: {}", arg_remote_endpoint->to_string());
-    }
-    */
 
     return true;
 }
