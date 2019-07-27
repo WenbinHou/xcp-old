@@ -89,14 +89,26 @@ namespace infra
         XCP_DEFAULT_MOVE_CONSTRUCTOR(tcp_sockaddr)
         tcp_sockaddr() = default;
 
+        void set_port(uint16_t port_in_host_endian) noexcept;
+        [[nodiscard]]
+        uint16_t port() const noexcept;
+
+        [[nodiscard]]
         uint16_t family() const noexcept { return addr.ss_family; }
 
+        [[nodiscard]]
         const sockaddr* address() const noexcept { return (const sockaddr*)&addr; }
+
+        [[nodiscard]]
         sockaddr* address() noexcept { return (sockaddr*)&addr; }
 
+        [[nodiscard]]
         socklen_t socklen() const noexcept;
 
+        [[nodiscard]]
         std::string to_string() const;
+
+        XCP_DEFAULT_SERIALIZATION(cereal::binary_data(&addr, sizeof(sockaddr_storage)))
     };
 
 
@@ -126,6 +138,8 @@ namespace infra
 
         bool parse(const std::string& value);
         bool resolve();
+
+        [[nodiscard]]
         std::string to_string() const;
     };
 

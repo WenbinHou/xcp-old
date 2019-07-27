@@ -5,16 +5,21 @@
 #error "Please don't directly #include this file. Instead, #include common.h"
 #endif  // !defined(_XCP_COMMON_H_INCLUDED_)
 
+
 namespace xcp
 {
+    struct client_portal_state;
+
+
     struct client_channel_state
     {
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(client_channel_state)
         XCP_DISABLE_MOVE_CONSTRUCTOR(client_channel_state)
 
-        explicit client_channel_state(infra::tcp_endpoint_repeatable ep)
-            : required_endpoint(std::move(ep))
+        explicit client_channel_state(client_portal_state& portal, infra::tcp_sockaddr addr)
+            : portal(portal),
+              server_channel_sockaddr(std::move(addr))
         { }
 
         bool init();
@@ -24,11 +29,12 @@ namespace xcp
         void fn_thread_work();
 
     public:
+        client_portal_state& portal;
         std::thread thread_work { };
-        const infra::tcp_endpoint_repeatable required_endpoint { };
-        infra::tcp_sockaddr connected_remote_endpoint { };
+        const infra::tcp_sockaddr server_channel_sockaddr { };
         infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
     };
+
 
     struct client_portal_state
     {
@@ -38,7 +44,9 @@ namespace xcp
 
         explicit client_portal_state(infra::tcp_endpoint ep)
             : required_endpoint(std::move(ep))
-        { }
+        {
+            client_identity.init();
+        }
 
         bool init();
         ~client_portal_state() noexcept;
@@ -47,6 +55,9 @@ namespace xcp
         void fn_thread_work();
 
     public:
+        infra::identity_t client_identity;
+        std::vector<std::shared_ptr<client_channel_state>> channels;
+
         std::thread thread_work { };
         const infra::tcp_endpoint required_endpoint { };
         infra::tcp_sockaddr connected_remote_endpoint { };

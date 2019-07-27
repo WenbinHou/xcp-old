@@ -24,7 +24,7 @@ namespace infra
 #else
 #   error "Unknown platform"
 #endif
-            details::g_logger->flush_on(spdlog::level::info);
+            details::g_logger->flush_on(spdlog::level::trace);
             details::g_logger->set_level(spdlog::level::info);
         }
         catch (const std::exception& ex) {

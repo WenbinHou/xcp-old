@@ -208,6 +208,7 @@
 #endif
 #include <cereal/cereal.hpp>
 #include <cereal/access.hpp>
+#include <cereal/archives/portable_binary.hpp>
 #include <cereal/types/array.hpp>
 #include <cereal/types/atomic.hpp>
 #include <cereal/types/common.hpp>

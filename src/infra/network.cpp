@@ -5,6 +5,34 @@
 // union tcp_sockaddr
 //==============================================================================
 
+void infra::tcp_sockaddr::set_port(const uint16_t port_in_host_endian) noexcept
+{
+    if (family() == AF_INET) {
+        addr_ipv4.sin_port = htons(port_in_host_endian);
+    }
+    else if (family() == AF_INET6) {
+        addr_ipv6.sin6_port = htons(port_in_host_endian);
+    }
+    else {
+        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        std::abort();
+    }
+}
+
+uint16_t infra::tcp_sockaddr::port() const noexcept
+{
+    if (family() == AF_INET) {
+        return ntohs(addr_ipv4.sin_port);
+    }
+    else if (family() == AF_INET6) {
+        return ntohs(addr_ipv6.sin6_port);
+    }
+    else {
+        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        std::abort();
+    }
+}
+
 socklen_t infra::tcp_sockaddr::socklen() const noexcept
 {
     if (family() == AF_INET) {

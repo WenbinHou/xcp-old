@@ -7,10 +7,7 @@
 
 xcp::xcp_program_options g_xcp_program_options;
 
-std::vector<std::shared_ptr<xcp::client_channel_state>> g_client_channels;
 std::shared_ptr<xcp::client_portal_state> g_client_portal = nullptr;
-
-infra::identity_t g_client_identity;
 
 
 
@@ -75,9 +72,6 @@ int main(int argc, char* argv[])
 
         // Close client portal
         g_client_portal.reset();
-
-        // Close client channels
-        g_client_channels.clear();
         
         LOG_INFO("Bye!");
     };

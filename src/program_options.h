@@ -79,6 +79,7 @@ namespace xcp
         host_path arg_from_path;
         host_path arg_to_path;
 
+        bool is_from_server_to_client;
         infra::tcp_endpoint server_portal;
 
     public:

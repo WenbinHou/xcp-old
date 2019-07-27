@@ -55,10 +55,13 @@ namespace infra
 
         static void require_exit()
         {
-            LOG_INFO("Exit required...");
-            __exit_required = true;
+            bool expected = false;
+            if (__exit_required.compare_exchange_strong(expected, true)) {
+                LOG_INFO("Exit required...");
+                __exit_required = true;
 
-            __sem.post();
+                __sem.post();
+            }
         }
 
         static bool is_exit_required() noexcept

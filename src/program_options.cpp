@@ -178,14 +178,17 @@ bool xcp::xcp_program_options::post_process()
         LOG_INFO("Copy to local path {}", arg_to_path.path);
     }
 
+
     if (arg_from_path.is_remote() && arg_to_path.is_remote()) {
         LOG_ERROR("Can't copy between remote hosts");
         return false;
     }
     else if (arg_from_path.is_remote()) {
+        is_from_server_to_client = true;
         server_portal.host = arg_from_path.host.value();
     }
     else if (arg_to_path.is_remote()) {
+        is_from_server_to_client = false;
         server_portal.host = arg_to_path.host.value();
     }
     else {
