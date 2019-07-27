@@ -44,8 +44,8 @@ namespace xcp
         XCP_DISABLE_COPY_CONSTRUCTOR(client_portal_state)
         XCP_DISABLE_MOVE_CONSTRUCTOR(client_portal_state)
 
-        explicit client_portal_state(infra::tcp_endpoint ep)
-            : required_endpoint(std::move(ep))
+        explicit client_portal_state(std::shared_ptr<xcp_program_options> program_options)
+            : program_options(std::move(program_options))
         {
             client_identity.init();
         }
@@ -59,13 +59,13 @@ namespace xcp
         void fn_thread_work();
 
     public:
+        std::shared_ptr<xcp_program_options> program_options;
         infra::identity_t client_identity;
 
         std::vector<std::shared_ptr<client_channel_state>> channels;
         std::shared_mutex channels_mutex { };
 
         std::thread thread_work { };
-        const infra::tcp_endpoint required_endpoint { };
         infra::tcp_sockaddr connected_remote_endpoint { };
         infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
     };

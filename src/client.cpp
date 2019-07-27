@@ -5,14 +5,6 @@ using namespace xcp;
 using namespace infra;
 
 
-//==============================================================================
-// Global variables
-//==============================================================================
-extern xcp::xcp_program_options g_xcp_program_options;
-
-extern std::shared_ptr<xcp::client_portal_state> g_client_portal;
-
-
 
 //==============================================================================
 // struct client_channel_state
@@ -99,7 +91,7 @@ void client_channel_state::fn_thread_work()
 bool client_portal_state::init()
 {
     bool connected = false;
-    for (const tcp_sockaddr& addr : required_endpoint.resolved_sockaddrs) {
+    for (const tcp_sockaddr& addr : program_options->server_portal.resolved_sockaddrs) {
         sock = socket(addr.family(), SOCK_STREAM, IPPROTO_TCP);
         if (sock == INVALID_SOCKET_VALUE) {
             LOG_WARN("Can't create socket for portal {}. {} (skipped)", addr.to_string(), socket_error_description());
@@ -125,14 +117,14 @@ bool client_portal_state::init()
             continue;
         }
 
-        LOG_INFO("Connected to portal {} (peer: {})", required_endpoint.to_string(), connected_remote_endpoint.to_string());
+        LOG_INFO("Connected to portal {} (peer: {})", program_options->server_portal.to_string(), connected_remote_endpoint.to_string());
         connected = true;
         sweep.suppress_sweep();
         break;
     }
 
     if (!connected) {
-        LOG_ERROR("Can't create and connect to server portal endpoint {}", required_endpoint.to_string());
+        LOG_ERROR("Can't create and connect to server portal endpoint {}", program_options->server_portal.to_string());
         return false;
     }
 
@@ -152,7 +144,7 @@ bool client_portal_state::init()
 void client_portal_state::dispose_impl() noexcept
 {
     if (sock != INVALID_SOCKET_VALUE) {
-        LOG_INFO("Close server portal {} (peer: {})", required_endpoint.to_string(), connected_remote_endpoint.to_string());
+        LOG_INFO("Close server portal {} (peer: {})", program_options->server_portal.to_string(), connected_remote_endpoint.to_string());
         close_socket(sock);
         sock = INVALID_SOCKET_VALUE;
     }
@@ -198,14 +190,14 @@ void client_portal_state::fn_thread_work()
     //
     {
         message_client_hello_request msg;
-        msg.is_from_server_to_client = g_xcp_program_options.is_from_server_to_client;
+        msg.is_from_server_to_client = program_options->is_from_server_to_client;
         if (msg.is_from_server_to_client) {
-            msg.server_path = g_xcp_program_options.arg_from_path.path;
-            msg.client_file_name = stdfs::path(g_xcp_program_options.arg_to_path.path).filename().string();
+            msg.server_path = program_options->arg_from_path.path;
+            msg.client_file_name = stdfs::path(program_options->arg_to_path.path).filename().string();
         }
         else {  // from client to server
-            msg.server_path = g_xcp_program_options.arg_to_path.path;
-            msg.client_file_name = stdfs::path(g_xcp_program_options.arg_from_path.path).filename().string();
+            msg.server_path = program_options->arg_to_path.path;
+            msg.client_file_name = stdfs::path(program_options->arg_from_path.path).filename().string();
         }
 
         if (!message_send(sock, msg)) {

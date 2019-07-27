@@ -1,10 +1,6 @@
 #include "common.h"
 
 
-//==============================================================================
-// Global functions
-//==============================================================================
-
 int main(int argc, char* argv[])
 {
     //
@@ -31,34 +27,35 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    {
+        std::shared_ptr<xcp::server_portal_state> server_portal = std::make_shared<xcp::server_portal_state>(options);
 
-    std::shared_ptr<xcp::server_portal_state> server_portal = std::make_shared<xcp::server_portal_state>(options);
+        //
+        // On-exit sweeper
+        //
+        infra::sweeper exit_sweep = [&]() {
+            // Set exit required flag first!
+            if (!infra::sighandle::is_exit_required()) {
+                infra::sighandle::require_exit();
+            }
 
-    //
-    // On-exit sweeper
-    //
-    infra::sweeper exit_sweep = [&]() {
-        // Set exit required flag first!
-        if (!infra::sighandle::is_exit_required()) {
-            infra::sighandle::require_exit();
+            // Close server portal
+            server_portal->dispose();
+            server_portal.reset();
+
+            LOG_INFO("Bye!");
+        };
+
+        if (!server_portal->init()) {
+            LOG_ERROR("server_portal init() failed");
+            return 1;
         }
 
-        // Close server portal
-        server_portal->dispose();
-        server_portal.reset();
 
-        LOG_INFO("Bye!");
-    };
-
-    if (!server_portal->init()) {
-        LOG_ERROR("server_portal init() failed");
-        return 1;
+        // Wait for exit...
+        LOG_TRACE("Waiting for exit on main thread...");
+        infra::sighandle::wait_for_exit_required();
     }
-
-
-    // Wait for exit...
-    LOG_TRACE("Waiting for exit on main thread...");
-    infra::sighandle::wait_for_exit_required();
 
     return 0;
 }
