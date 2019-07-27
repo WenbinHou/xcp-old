@@ -10,7 +10,7 @@ using namespace infra;
 // struct client_channel_state
 //==============================================================================
 
-void client_channel_state::dispose_impl() noexcept
+void client_channel_state::dispose_impl() noexcept /*override*/
 {
     if (sock != INVALID_SOCKET_VALUE) {
         LOG_INFO("Close channel: {}", server_channel_sockaddr.to_string());
@@ -60,7 +60,7 @@ bool client_channel_state::init()
 
 void client_channel_state::fn_thread_work()
 {
-    sweeper sweep = [&]() {
+    sweeper exit_cleanup = [&]() {
         // Just dispose 
         this->portal.async_dispose(false);
     };
@@ -79,7 +79,17 @@ void client_channel_state::fn_thread_work()
         LOG_TRACE("Channel {}: sent identity to peer", server_channel_sockaddr.to_string());
     }
 
-    // TODO
+    // Run transfer
+    {
+        assert(portal.transfer != nullptr);
+        const bool success = portal.transfer->invoke_channel(sock);
+        if (!success) {
+            LOG_ERROR("Channel {}: transfer failed", server_channel_sockaddr.to_string());
+            return;
+        }
+    }
+
+    exit_cleanup.suppress_sweep();
 }
 
 
@@ -90,6 +100,25 @@ void client_channel_state::fn_thread_work()
 
 bool client_portal_state::init()
 {
+    //
+    // Prepare file
+    //
+    try {
+        if (program_options->is_from_server_to_client) {  // from server to client
+            this->transfer = std::make_shared<transfer_destination>(
+                stdfs::path(program_options->arg_from_path.path).filename().u8string(),
+                program_options->arg_to_path.path);
+        }
+        else {  // from client to server
+            this->transfer = std::make_shared<transfer_source>(program_options->arg_from_path.path);
+        }
+    }
+    catch(const transfer_error& ex) {
+        LOG_ERROR("Can't transfer file: {}", ex.error_message);
+        return false;
+    }
+
+
     bool connected = false;
     for (const tcp_sockaddr& addr : program_options->server_portal.resolved_sockaddrs) {
         sock = socket(addr.family(), SOCK_STREAM, IPPROTO_TCP);
@@ -171,6 +200,7 @@ void client_portal_state::fn_thread_work()
 
     LOG_TRACE("Server portal connected: {}", connected_remote_endpoint.to_string());
 
+
     //
     // Send my identity
     //
@@ -198,6 +228,7 @@ void client_portal_state::fn_thread_work()
         else {  // from client to server
             msg.server_path = program_options->arg_to_path.path;
             msg.client_file_name = stdfs::path(program_options->arg_from_path.path).filename().string();
+            msg.file_size = this->transfer->file_size;
         }
 
         if (!message_send(sock, msg)) {
@@ -220,14 +251,28 @@ void client_portal_state::fn_thread_work()
         }
 
         if (msg.error_code != 0) {
-            LOG_ERROR("Server responds error: {}. errno = {} ({})", msg.error_message, msg.error_code, strerror(msg.error_code));
+            LOG_ERROR("Server responds an error: {}. errno = {} ({})", msg.error_message, msg.error_code, strerror(msg.error_code));
             return;
         }
 
         server_channels = std::move(msg.server_channels);
+
+        // Init file size if from server to client
+        if (program_options->is_from_server_to_client) {  // from server to client
+            assert(msg.file_size.has_value());
+            try {
+                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(msg.file_size.value());
+            }
+            catch(const transfer_error& ex) {
+                LOG_ERROR("Transfer error: {}. errno = {} ({})", ex.error_message, ex.error_code, strerror(ex.error_code));
+                return;
+            }
+        }
+        else {  // from client to server
+            assert(!msg.file_size.has_value());
+        }
     }
 
-    // TODO: Prepare for local file!
 
     // Create channels
     {
@@ -239,12 +284,11 @@ void client_portal_state::fn_thread_work()
             chan_addr.set_port(addr.port());  // don't use IP from 'addr'!
             LOG_DEBUG("Client portal: server channel {} (repeats: {})", chan_addr.to_string(), repeats);
 
-            bool is_first = true;
+            size_t cnt = 0;
             for (size_t i = 0; i < repeats; ++i) {
-                if (!is_first) {
+                if (++cnt >= 16) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));  // sleep 5 msec
                 }
-                is_first = false;
 
                 std::shared_ptr<client_channel_state> chan = std::make_shared<client_channel_state>(*this, chan_addr);
                 if (!chan->init()) {
@@ -288,5 +332,12 @@ void client_portal_state::fn_thread_work()
         LOG_DEBUG("Client portal: server is ready to transfer");
     }
 
-    // TODO: Wait for file transportation done
+    // Run transfer
+    {
+        assert(this->transfer != nullptr);
+        const bool success = this->transfer->invoke_portal(sock);
+        if (!success) {
+            LOG_DEBUG("Client portal: transfer failed");
+        }
+    }
 }

@@ -26,8 +26,9 @@ namespace xcp
         bool is_from_server_to_client;
         std::string client_file_name;
         std::string server_path;
+        std::optional<uint64_t> file_size;  // only if from client to server
 
-        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, client_file_name, server_path)
+        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, client_file_name, server_path, file_size)
     };
 
     struct message_server_hello_response : message_base<message_type::SERVER_HELLO_RESPONSE>
@@ -36,7 +37,7 @@ namespace xcp
         std::string error_message;
 
         std::vector<std::tuple<infra::tcp_sockaddr, size_t>> server_channels;
-        uint64_t file_size;
+        std::optional<uint64_t> file_size;  // only if from server to client
         // TODO: more file information (like timestamps, etc)
 
         XCP_DEFAULT_SERIALIZATION(error_code, error_message, server_channels, file_size)

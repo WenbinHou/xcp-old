@@ -68,6 +68,8 @@ namespace xcp
         std::thread thread_work { };
         infra::tcp_sockaddr connected_remote_endpoint { };
         infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
+
+        std::shared_ptr<transfer_base> transfer { nullptr };
     };
 
 }  // namespace xcp

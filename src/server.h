@@ -51,11 +51,7 @@ namespace xcp
         const std::size_t total_channel_repeats_count;
         infra::semaphore sem_all_channel_repeats_connected { 0 };
 
-        struct {
-            bool is_from_server_to_client { };
-            std::string client_file_name;
-            std::string server_path;
-        } request;
+        std::shared_ptr<transfer_base> transfer { nullptr };
     };
 
 

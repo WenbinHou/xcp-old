@@ -6,6 +6,7 @@ add_executable(xcp
     "${CMAKE_CURRENT_LIST_DIR}/infra/network.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/program_options.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/message.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/transfer.cpp"
 
     #-------- xcp unique source files --------
     "${CMAKE_CURRENT_LIST_DIR}/client.cpp"
@@ -20,6 +21,7 @@ add_executable(xcpd
     "${CMAKE_CURRENT_LIST_DIR}/infra/network.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/program_options.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/message.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/transfer.cpp"
 
     #-------- xcpd unique source files --------
     "${CMAKE_CURRENT_LIST_DIR}/server.cpp"

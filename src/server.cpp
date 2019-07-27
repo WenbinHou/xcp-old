@@ -19,6 +19,12 @@ void client_instance::fn_portal()
     // NOTE: client identity has been received
 
     // Receive client request
+    struct {
+        bool is_from_server_to_client { };
+        std::string client_file_name;
+        std::string server_path;
+        std::optional<std::uint64_t> file_size;
+    } transfer_request;
     {
         message_client_hello_request msg;
         if (!message_recv(accepted_portal_socket, msg)) {
@@ -29,9 +35,10 @@ void client_instance::fn_portal()
         LOG_TRACE("Peer {}: request: is_from_server_to_client={}, client_file_name={}, server_path={}",
                   peer_endpoint.to_string(), msg.is_from_server_to_client, msg.client_file_name, msg.server_path);
 
-        request.is_from_server_to_client = msg.is_from_server_to_client;
-        request.client_file_name = std::move(msg.client_file_name);
-        request.server_path = std::move(msg.server_path);
+        transfer_request.is_from_server_to_client = msg.is_from_server_to_client;
+        transfer_request.client_file_name = std::move(msg.client_file_name);
+        transfer_request.server_path = std::move(msg.server_path);
+        transfer_request.file_size = std::move(msg.file_size);
     }
 
 
@@ -40,22 +47,38 @@ void client_instance::fn_portal()
         message_server_hello_response msg;
         msg.error_code = 0;
 
-        do {
-            const stdfs::path server_path(request.server_path);
-            if (server_path.is_relative()) {
-                LOG_ERROR("Server portal (peer {}): server side path {} should not be relative path", peer_endpoint.to_string(), server_path.string());
-                msg.error_code = EINVAL;
-                msg.error_message = "Server side path is relative: " + request.server_path;
-                break;
+        // Check against relative path on server side
+        if (stdfs::path(transfer_request.server_path).is_relative()) {
+            LOG_ERROR("Server portal (peer {}): server side path {} should not be relative path",
+                      peer_endpoint.to_string(), transfer_request.server_path);
+            msg.error_code = EINVAL;
+            msg.error_message = "Server side path is relative: " + transfer_request.server_path;
+        }
+
+        if (msg.error_code == 0) {
+            try {
+                if (transfer_request.is_from_server_to_client) {  // from server to client
+                    assert(!transfer_request.file_size.has_value());
+                    this->transfer = std::make_shared<transfer_source>(transfer_request.server_path);
+                    msg.file_size = this->transfer->file_size;
+                }
+                else {  // from client to server
+                    assert(transfer_request.file_size.has_value());
+                    this->transfer = std::make_shared<transfer_destination>(
+                        transfer_request.client_file_name,
+                        transfer_request.server_path);
+                    std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(transfer_request.file_size.value());
+                }
             }
-
-            // TODO: try to open the file for write?
-            msg.file_size = 0x123456;  // TODO
-
-        } while(false);
+            catch(const transfer_error& ex) {
+                msg.error_code = ex.error_code;
+                msg.error_message = ex.error_message;
+                LOG_ERROR("Server portal (peer {}): {}", peer_endpoint.to_string(), msg.error_message);
+            }
+        }
 
         if (msg.error_code == 0) {  // no error
-            // Set server channels
+            // Tell client: server channels
             assert(!server_portal.channels.empty());
             for (const std::shared_ptr<xcp::server_channel_state>& chan : server_portal.channels) {
                 msg.server_channels.emplace_back(chan->bound_local_endpoint, chan->required_endpoint.repeats.value());
@@ -85,11 +108,16 @@ void client_instance::fn_portal()
             LOG_ERROR("Server portal (peer {}): send message_server_ready_to_transfer failed", peer_endpoint.to_string());
             return;
         }
-        LOG_TRACE("Server portal (peer {}): now ready to transfer");
+        LOG_TRACE("Server portal (peer {}): now ready to transfer", peer_endpoint.to_string());
     }
 
-
-    // TODO
+    // Run transfer
+    {
+        const bool success = this->transfer->invoke_portal(accepted_portal_socket);
+        if (!success) {
+            LOG_ERROR("Server portal (peer {}): transfer failed", peer_endpoint.to_string());
+        }
+    }
 }
 
 void client_instance::fn_channel(infra::socket_t accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint)
@@ -100,12 +128,23 @@ void client_instance::fn_channel(infra::socket_t accepted_channel_socket, infra:
 
     LOG_TRACE("Channel (peer {}): channel initialization done", channel_peer_endpoint.to_string());
 
+    // Signal if all channel repeats are connected
     if (++connected_channel_repeats_count == total_channel_repeats_count) {
         LOG_TRACE("Client: all {} channel repeats are connected", total_channel_repeats_count);
         sem_all_channel_repeats_connected.post();
     }
 
-    // TODO
+    // Run transfer
+    {
+        assert(this->transfer != nullptr);
+        const bool success = this->transfer->invoke_channel(accepted_channel_socket);
+        if (!success) {
+            LOG_ERROR("Server portal (peer {}): transfer failed", channel_peer_endpoint.to_string());
+            return;
+        }
+    }
+
+    exit_cleanup.suppress_sweep();
 }
 
 void client_instance::dispose_impl() noexcept /*override*/
@@ -521,7 +560,6 @@ void server_portal_state::fn_task_accepted_portal(std::thread* const thr, socket
     {
         std::unique_lock<std::shared_mutex> lock(clients_mutex);
 
-        // TODO: check portal is_dispose_required
         if (this->is_dispose_required()) {  // unlikely, must be guarded by clients_mutex (double check)
             LOG_INFO("Dispose required. Abandon initializing client (peer {})", peer_addr.to_string());
             return;

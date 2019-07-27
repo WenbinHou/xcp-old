@@ -5,6 +5,7 @@
 
 #include "program_options.h"
 #include "message.h"
+#include "transfer.h"
 #include "server.h"
 #include "client.h"
 

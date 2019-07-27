@@ -49,7 +49,7 @@ int main(int argc, char* argv[])
 
         if (!client_portal->init()) {
             LOG_ERROR("Init server_portal_state failed for {}", options->server_portal.to_string());
-            return false;
+            return 1;
         }
 
 
