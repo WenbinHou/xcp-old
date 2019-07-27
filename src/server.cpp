@@ -11,12 +11,10 @@ using namespace infra;
 
 void client_instance::fn_portal()
 {
-    // NOTE: lock all_threads fo a while...
-    // This allows current thread to be saved into all_threads, before it actually do things
-    {
-        [[maybe_unused]]
-        std::shared_lock<std::shared_mutex> lock(all_threads_mutex);
-    }
+    infra::sweeper exit_cleanup = [this]() {
+        this->async_dispose(false);
+    };
+
 
     // NOTE: client identity has been received
 
@@ -72,33 +70,51 @@ void client_instance::fn_portal()
         LOG_TRACE("Server portal (peer {}): response: error_code={}, server_channels.size()={}",
                   peer_endpoint.to_string(), msg.error_code, msg.server_channels.size());
     }
+
+    // TODO
 }
 
 void client_instance::fn_channel(infra::socket_t accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint)
 {
     infra::sweeper exit_cleanup = [&]() {
-        infra::close_socket(accepted_channel_socket);
-        accepted_channel_socket = infra::INVALID_SOCKET_VALUE;
+        this->async_dispose(false);
     };
 
     LOG_TRACE("Channel (peer {}): channel initialization done", channel_peer_endpoint.to_string());
+
+    // TODO
 }
 
-void client_instance::dispose() noexcept
+void client_instance::dispose_impl() noexcept /*override*/
 {
-    if (accepted_portal_socket) {
+    // Wait for all portal thread to exit...
+    if (accepted_portal_socket != infra::INVALID_SOCKET_VALUE) {
         close_socket(accepted_portal_socket);
         accepted_portal_socket = infra::INVALID_SOCKET_VALUE;
     }
 
-    // Wait for all threads to exit...
+    if (portal_thread) {
+        assert(portal_thread->joinable());
+        portal_thread->join();
+        portal_thread.reset();
+    }
+
+    // Wait for all channel threads to exit...
     {
-        std::unique_lock<std::shared_mutex> lock(all_threads_mutex);
-        for (std::shared_ptr<std::thread>& thr : all_threads) {
-            assert(thr->joinable());
-            thr->join();
+        std::unique_lock<std::shared_mutex> lock(channel_threads_mutex);
+        for (std::pair<infra::socket_t, std::shared_ptr<std::thread>>& pair : channel_threads) {
+            if (pair.first != infra::INVALID_SOCKET_VALUE) {
+                close_socket(pair.first);
+                pair.first = infra::INVALID_SOCKET_VALUE;
+            }
+
+            if (pair.second) {
+                assert(pair.second->joinable());
+                pair.second->join();
+                pair.second.reset();
+            }
         }
-        all_threads.clear();
+        channel_threads.clear();
     }
 }
 
@@ -183,7 +199,7 @@ bool server_channel_state::init()
     return true;
 }
 
-void server_channel_state::dispose() noexcept
+void server_channel_state::dispose_impl() noexcept /*override*/
 {
     if (sock != INVALID_SOCKET_VALUE) {
         LOG_INFO("Close server channel {} bound to {}", required_endpoint.to_string(), bound_local_endpoint.to_string());
@@ -234,6 +250,7 @@ void server_channel_state::fn_thread_accept()
                 if (cnt != (int)sizeof(identity)) {
                     LOG_ERROR("Server channel: receive identity from peer {} expects {}, but returns {}. {}",
                               peer_addr.to_string(), sizeof(identity), cnt, socket_error_description());
+                    thr->detach();
                     return;
                 }
 
@@ -247,18 +264,29 @@ void server_channel_state::fn_thread_accept()
                 const auto it = portal.clients.find(identity);
                 if (it == portal.clients.end()) {
                     LOG_ERROR("Server channel: Unknown identity from peer {}", peer_addr.to_string());
+                    thr->detach();
                     return;
                 }
                 client = it->second;
             }
             //LOG_TRACE("Client found: {}", client->peer_endpoint.to_string());
 
-            // Add current thread to client all_threads
+            // Add current thread to client channel_threads
             {
-                std::unique_lock<std::shared_mutex> lock(client->all_threads_mutex);
-                client->all_threads.emplace_back(std::shared_ptr<std::thread>(thr));
+                std::unique_lock<std::shared_mutex> lock(client->channel_threads_mutex);
+                if (client->is_dispose_required()) {  // unlikely
+                    lock.unlock();
+
+                    LOG_ERROR("Server channel: client instance has required dispose()");
+                    thr->detach();
+                    return;
+                }
+                else {
+                    client->channel_threads.emplace_back(accepted_sock, std::shared_ptr<std::thread>(thr));
+                }
             }
 
+            sweep.suppress_sweep();
             client->fn_channel(accepted_sock, peer_addr);
         });
     }
@@ -364,7 +392,7 @@ bool server_portal_state::init()
     return true;
 }
 
-void server_portal_state::dispose() noexcept
+void server_portal_state::dispose_impl() noexcept /*override*/
 {
     // Stop server portal socket
     if (sock != INVALID_SOCKET_VALUE) {
@@ -381,6 +409,7 @@ void server_portal_state::dispose() noexcept
     {
         for (std::shared_ptr<server_channel_state>& chan : channels) {
             chan->dispose();
+            chan.reset();
         }
         channels.clear();
     }
@@ -389,8 +418,9 @@ void server_portal_state::dispose() noexcept
     LOG_DEBUG("Removing all clients...");
     {
         std::unique_lock<std::shared_mutex> lock(clients_mutex);
-        for (const auto& it : clients) {
+        for (auto& it : clients) {
             it.second->dispose();
+            it.second.reset();
         }
         clients.clear();
     }
@@ -419,26 +449,27 @@ void server_portal_state::fn_thread_accept()
         }
         LOG_DEBUG("Accepted from portal: {}", peer_addr.to_string());
 
-        std::thread thr([this, accepted_sock, peer_addr]() {
+        launch_thread([this, accepted_sock, peer_addr](std::thread* thr) {
             try {
-                fn_task_accepted_portal(accepted_sock, peer_addr);
+                fn_task_accepted_portal(thr, accepted_sock, peer_addr);
             }
             catch(const std::exception& ex) {
                 LOG_ERROR("fn_task_accepted_portal() exception: {}", ex.what());
                 // Don't std::abort()!
             }
         });
-        thr.detach();
     }
 }
 
-void server_portal_state::fn_task_accepted_portal(socket_t accepted_sock, const tcp_sockaddr& peer_addr)
+void server_portal_state::fn_task_accepted_portal(std::thread* const thr, socket_t accepted_sock, const tcp_sockaddr& peer_addr)
 {
     sweeper sweep = [&]() {
         if (accepted_sock != INVALID_SOCKET_VALUE) {
             close_socket(accepted_sock);
             accepted_sock = INVALID_SOCKET_VALUE;
         }
+
+        // TODO: thr memory leak! (if not added to client)
     };
 
 
@@ -460,16 +491,17 @@ void server_portal_state::fn_task_accepted_portal(socket_t accepted_sock, const 
     {
         std::unique_lock<std::shared_mutex> lock(clients_mutex);
 
-        if (sighandle::is_exit_required()) {  // must be guarded by clients_mutex (double check)
-            LOG_INFO("Exit required. Abandon initializing peer {}", peer_addr.to_string());
+        // TODO: check portal is_dispose_required
+        if (this->is_dispose_required()) {  // unlikely, must be guarded by clients_mutex (double check)
+            LOG_INFO("Dispose required. Abandon initializing client (peer {})", peer_addr.to_string());
             return;
         }
 
-        client = std::make_shared<client_instance>(*this, accepted_sock, peer_addr, identity);
+        client = std::make_shared<client_instance>(*this, accepted_sock, std::shared_ptr<std::thread>(thr), peer_addr, identity);
         clients.insert(std::make_pair(identity, client));
     }
 
     // Run client's fn_portal
+    sweep.suppress_sweep();
     client->fn_portal();
 }
-

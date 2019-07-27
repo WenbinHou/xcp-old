@@ -9,38 +9,41 @@ namespace xcp
 {
     struct server_portal_state;
 
-    struct client_instance
+    struct client_instance : infra::disposable
     {
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(client_instance)
         XCP_DISABLE_MOVE_CONSTRUCTOR(client_instance)
 
-        ~client_instance() noexcept { dispose(); }
-
         client_instance(
             server_portal_state& server_portal,
             const infra::socket_t accepted_portal_socket,
+            std::shared_ptr<std::thread> portal_thread,
             const infra::tcp_sockaddr& peer_endpoint,
             const infra::identity_t& client_identity) noexcept
             : server_portal(server_portal),
-              accepted_portal_socket(accepted_portal_socket),
               peer_endpoint(peer_endpoint),
-              client_identity(client_identity)
+              client_identity(client_identity),
+              accepted_portal_socket(accepted_portal_socket),
+              portal_thread(std::move(portal_thread))
         { }
 
         void fn_portal();
         void fn_channel(infra::socket_t accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint);
-        void dispose() noexcept;
+        void dispose_impl() noexcept override;
+        virtual ~client_instance() noexcept = default;
 
     public:
         server_portal_state& server_portal;
 
-        infra::socket_t accepted_portal_socket;
         infra::tcp_sockaddr peer_endpoint;
         const infra::identity_t client_identity;
 
-        std::vector<std::shared_ptr<std::thread>> all_threads;  // including portal thread and channel threads
-        std::shared_mutex all_threads_mutex;
+        infra::socket_t accepted_portal_socket;
+        std::shared_ptr<std::thread> portal_thread;
+
+        std::vector<std::pair<infra::socket_t, std::shared_ptr<std::thread>>> channel_threads;
+        std::shared_mutex channel_threads_mutex;
 
         struct {
             bool is_from_server_to_client { };
@@ -50,7 +53,7 @@ namespace xcp
     };
 
 
-    struct server_channel_state
+    struct server_channel_state : infra::disposable
     {
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(server_channel_state)
@@ -62,8 +65,8 @@ namespace xcp
         { }
 
         bool init();
-        void dispose() noexcept;
-        ~server_channel_state() noexcept { dispose(); }
+        void dispose_impl() noexcept override;
+        virtual ~server_channel_state() noexcept = default;
 
     private:
         void fn_thread_accept();
@@ -77,7 +80,7 @@ namespace xcp
     };
 
 
-    struct server_portal_state
+    struct server_portal_state : infra::disposable
     {
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(server_portal_state)
@@ -88,12 +91,12 @@ namespace xcp
         { }
 
         bool init();
-        void dispose() noexcept;
-        ~server_portal_state() noexcept { dispose(); }
+        void dispose_impl() noexcept override;
+        virtual ~server_portal_state() noexcept = default;
 
     private:
         void fn_thread_accept();
-        void fn_task_accepted_portal(infra::socket_t accepted_sock, const infra::tcp_sockaddr& peer_addr);
+        void fn_task_accepted_portal(std::thread* thr, infra::socket_t accepted_sock, const infra::tcp_sockaddr& peer_addr);
 
     public:
         std::thread thread_accept { };
