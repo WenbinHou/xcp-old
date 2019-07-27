@@ -71,6 +71,7 @@ int main(int argc, char* argv[])
         }
 
         // Close client portal
+        g_client_portal->dispose();
         g_client_portal.reset();
         
         LOG_INFO("Bye!");

@@ -11,7 +11,7 @@ namespace xcp
     struct client_portal_state;
 
 
-    struct client_channel_state
+    struct client_channel_state : infra::disposable
     {
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(client_channel_state)
@@ -22,8 +22,10 @@ namespace xcp
               server_channel_sockaddr(std::move(addr))
         { }
 
+        void dispose_impl() noexcept override;
         bool init();
-        ~client_channel_state() noexcept;
+
+        virtual ~client_channel_state() noexcept = default;
 
     private:
         void fn_thread_work();
@@ -36,7 +38,7 @@ namespace xcp
     };
 
 
-    struct client_portal_state
+    struct client_portal_state : infra::disposable
     {
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(client_portal_state)
@@ -49,14 +51,18 @@ namespace xcp
         }
 
         bool init();
-        ~client_portal_state() noexcept;
+        void dispose_impl() noexcept override;
+
+        virtual ~client_portal_state() noexcept = default;
 
     private:
         void fn_thread_work();
 
     public:
         infra::identity_t client_identity;
+
         std::vector<std::shared_ptr<client_channel_state>> channels;
+        std::shared_mutex channels_mutex { };
 
         std::thread thread_work { };
         const infra::tcp_endpoint required_endpoint { };

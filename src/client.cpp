@@ -18,6 +18,19 @@ extern std::shared_ptr<xcp::client_portal_state> g_client_portal;
 // struct client_channel_state
 //==============================================================================
 
+void client_channel_state::dispose_impl() noexcept
+{
+    if (sock != INVALID_SOCKET_VALUE) {
+        LOG_INFO("Close channel: {}", server_channel_sockaddr.to_string());
+        close_socket(sock);
+        sock = INVALID_SOCKET_VALUE;
+    }
+
+    if (thread_work.joinable()) {
+        thread_work.join();
+    }
+}
+
 bool client_channel_state::init()
 {
     sock = socket(server_channel_sockaddr.family(), SOCK_STREAM, IPPROTO_TCP);
@@ -38,7 +51,7 @@ bool client_channel_state::init()
     }
     LOG_INFO("Connected to channel {}", server_channel_sockaddr.to_string());
 
-    thread_work = std::thread([&]() {
+    thread_work = std::thread([this]() {
         try {
             this->fn_thread_work();
         }
@@ -52,29 +65,12 @@ bool client_channel_state::init()
     return true;
 }
 
-client_channel_state::~client_channel_state() noexcept
-{
-    if (sock != INVALID_SOCKET_VALUE) {
-        LOG_INFO("Close channel: {}", server_channel_sockaddr.to_string());
-        close_socket(sock);
-        sock = INVALID_SOCKET_VALUE;
-    }
-
-    if (thread_work.joinable()) {
-        thread_work.join();
-    }
-}
 
 void client_channel_state::fn_thread_work()
 {
     sweeper sweep = [&]() {
-        if (sock != INVALID_SOCKET_VALUE) {
-            close_socket(sock);
-            sock = INVALID_SOCKET_VALUE;
-        }
-
-        // Require exits
-        sighandle::require_exit();
+        // Just dispose 
+        this->portal.async_dispose(false);
     };
 
     //
@@ -153,7 +149,7 @@ bool client_portal_state::init()
     return true;
 }
 
-client_portal_state::~client_portal_state() noexcept
+void client_portal_state::dispose_impl() noexcept
 {
     if (sock != INVALID_SOCKET_VALUE) {
         LOG_INFO("Close server portal {} (peer: {})", required_endpoint.to_string(), connected_remote_endpoint.to_string());
@@ -165,17 +161,17 @@ client_portal_state::~client_portal_state() noexcept
         thread_work.join();
     }
 
-    // Close all channels
+    // Dispose all channels
+    for (std::shared_ptr<client_channel_state>& chan : channels) {
+        chan->dispose();
+    }
     channels.clear();
 }
 
 void client_portal_state::fn_thread_work()
 {
     sweeper sweep = [&]() {
-        if (sock != INVALID_SOCKET_VALUE) {
-            close_socket(sock);
-            sock = INVALID_SOCKET_VALUE;
-        }
+        this->async_dispose(false);
 
         // Require exits
         sighandle::require_exit();
@@ -263,7 +259,21 @@ void client_portal_state::fn_thread_work()
                     LOG_ERROR("Client portal: client_channel_state({}) init() failed", chan_addr.to_string());
                     return;
                 }
-                channels.emplace_back(chan);
+
+                {
+                    std::unique_lock<std::shared_mutex> lock(channels_mutex);
+                    if (this->is_dispose_required()) {  // unlikely
+                        lock.unlock();
+                        chan->dispose();
+                        chan.reset();
+
+                        this->async_dispose(false);
+                        return;
+                    }
+                    else {
+                        channels.emplace_back(chan);
+                    }
+                }
             }
         }
     }

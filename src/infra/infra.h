@@ -6,6 +6,8 @@
 
 #include "logging.h"
 #include "sweeper.h"
+#include "disposable.h"
+
 #include "semaphore.h"
 #include "sighandle.h"
 
