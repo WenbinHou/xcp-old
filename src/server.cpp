@@ -71,6 +71,24 @@ void client_instance::fn_portal()
                   peer_endpoint.to_string(), msg.error_code, msg.server_channels.size());
     }
 
+    // Wait for all channel repeats are connected
+    {
+        sem_all_channel_repeats_connected.wait();
+        if (is_dispose_required()) {  // unlikely
+            LOG_TRACE("Server portal (peer {}): dispose() required", peer_endpoint.to_string());
+            return;
+        }
+
+        message_server_ready_to_transfer msg;
+        msg.error_code = 0;
+        if (!message_send(accepted_portal_socket, msg)) {
+            LOG_ERROR("Server portal (peer {}): send message_server_ready_to_transfer failed", peer_endpoint.to_string());
+            return;
+        }
+        LOG_TRACE("Server portal (peer {}): now ready to transfer");
+    }
+
+
     // TODO
 }
 
@@ -82,6 +100,11 @@ void client_instance::fn_channel(infra::socket_t accepted_channel_socket, infra:
 
     LOG_TRACE("Channel (peer {}): channel initialization done", channel_peer_endpoint.to_string());
 
+    if (++connected_channel_repeats_count == total_channel_repeats_count) {
+        LOG_TRACE("Client: all {} channel repeats are connected", total_channel_repeats_count);
+        sem_all_channel_repeats_connected.post();
+    }
+
     // TODO
 }
 
@@ -91,6 +114,11 @@ void client_instance::dispose_impl() noexcept /*override*/
     if (accepted_portal_socket != infra::INVALID_SOCKET_VALUE) {
         close_socket(accepted_portal_socket);
         accepted_portal_socket = infra::INVALID_SOCKET_VALUE;
+    }
+
+    // Post sem_all_channel_repeats_connected to allow portal_thread to go on (if necessary)
+    if (connected_channel_repeats_count < total_channel_repeats_count) {
+        sem_all_channel_repeats_connected.post();
     }
 
     if (portal_thread) {
@@ -116,6 +144,8 @@ void client_instance::dispose_impl() noexcept /*override*/
         }
         channel_threads.clear();
     }
+
+    // TODO: Remove itself from server_portal_state.clients? or do this in dtor!
 }
 
 
@@ -497,7 +527,13 @@ void server_portal_state::fn_task_accepted_portal(std::thread* const thr, socket
             return;
         }
 
-        client = std::make_shared<client_instance>(*this, accepted_sock, std::shared_ptr<std::thread>(thr), peer_addr, identity);
+        client = std::make_shared<client_instance>(
+            *this,
+            accepted_sock,
+            std::shared_ptr<std::thread>(thr),
+            peer_addr,
+            identity,
+            program_options->total_channel_repeats_count);
         clients.insert(std::make_pair(identity, client));
     }
 

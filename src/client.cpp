@@ -270,5 +270,23 @@ void client_portal_state::fn_thread_work()
         }
     }
 
+
+    //
+    // Wait for server ready_to_transfer
+    //
+    {
+        message_server_ready_to_transfer msg;
+        if (!message_recv(sock, msg)) {
+            LOG_ERROR("Client portal: receive message_server_ready_to_transfer failed");
+            return;
+        }
+
+        if (msg.error_code != 0) {
+            LOG_ERROR("Server responds error: {}. errno = {} ({})", msg.error_message, msg.error_code, strerror(msg.error_code));
+            return;
+        }
+        LOG_DEBUG("Client portal: server is ready to transfer");
+    }
+
     // TODO: Wait for file transportation done
 }

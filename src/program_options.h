@@ -94,6 +94,8 @@ namespace xcp
         std::optional<infra::tcp_endpoint> arg_portal { };
         std::vector<infra::tcp_endpoint_repeatable> arg_channels { };
 
+        size_t total_channel_repeats_count { 0 };
+
     public:
         void add_options(CLI::App& app) override;
         bool post_process() override;

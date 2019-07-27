@@ -12,6 +12,7 @@ namespace xcp
     {
         CLIENT_HELLO_REQUEST,
         SERVER_HELLO_RESPONSE,
+        SERVER_READY_TO_TRANSFER,
     };
 
     template<message_type _MessageType>
@@ -39,6 +40,14 @@ namespace xcp
         // TODO: more file information (like timestamps, etc)
 
         XCP_DEFAULT_SERIALIZATION(error_code, error_message, server_channels, file_size)
+    };
+
+    struct message_server_ready_to_transfer : message_base<message_type::SERVER_READY_TO_TRANSFER>
+    {
+        int error_code;  // always zero
+        std::string error_message;
+
+        XCP_DEFAULT_SERIALIZATION(error_code, error_message)
     };
 
 

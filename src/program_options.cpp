@@ -302,7 +302,7 @@ bool xcp::xcpd_program_options::post_process()
         arg_channels.emplace_back(std::move(tmp));
     }
 
-    size_t total_channel_repeats = 0;
+    total_channel_repeats_count = 0;
     for (infra::tcp_endpoint_repeatable& ep : arg_channels) {
         if (!ep.port.has_value()) {
             ep.port = static_cast<uint16_t>(0);
@@ -322,9 +322,9 @@ bool xcp::xcpd_program_options::post_process()
             }
         }
 
-        total_channel_repeats += ep.repeats.value();
+        total_channel_repeats_count += ep.repeats.value();
     }
-    LOG_INFO("Total server channels (including repeats): {}", total_channel_repeats);
+    LOG_INFO("Total server channels (including repeats): {}", total_channel_repeats_count);
 
     return true;
 }

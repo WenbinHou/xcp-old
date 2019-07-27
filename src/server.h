@@ -20,12 +20,14 @@ namespace xcp
             const infra::socket_t accepted_portal_socket,
             std::shared_ptr<std::thread> portal_thread,
             const infra::tcp_sockaddr& peer_endpoint,
-            const infra::identity_t& client_identity) noexcept
+            const infra::identity_t& client_identity,
+            const size_t total_channel_repeats_count) noexcept
             : server_portal(server_portal),
               peer_endpoint(peer_endpoint),
               client_identity(client_identity),
               accepted_portal_socket(accepted_portal_socket),
-              portal_thread(std::move(portal_thread))
+              portal_thread(std::move(portal_thread)),
+              total_channel_repeats_count(total_channel_repeats_count)
         { }
 
         void fn_portal();
@@ -44,6 +46,10 @@ namespace xcp
 
         std::vector<std::pair<infra::socket_t, std::shared_ptr<std::thread>>> channel_threads;
         std::shared_mutex channel_threads_mutex;
+
+        std::atomic_size_t connected_channel_repeats_count { 0 };
+        const std::size_t total_channel_repeats_count;
+        infra::semaphore sem_all_channel_repeats_connected { 0 };
 
         struct {
             bool is_from_server_to_client { };
