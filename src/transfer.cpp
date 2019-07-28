@@ -319,7 +319,7 @@ namespace xcp
             }
 
             if (block_size == 0) {  // indicating sending is done!
-                ASSERT(offset == -1);
+                ASSERT(offset == (uint64_t)-1);
                 LOG_TRACE("Receive done for current channel");
                 break;
             }
