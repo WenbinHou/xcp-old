@@ -13,7 +13,7 @@ using namespace infra;
 void client_channel_state::dispose_impl() noexcept /*override*/
 {
     if (sock != INVALID_SOCKET_VALUE) {
-        LOG_INFO("Close channel: {}", server_channel_sockaddr.to_string());
+        LOG_DEBUG("Close channel: {}", server_channel_sockaddr.to_string());
         close_socket(sock);
         sock = INVALID_SOCKET_VALUE;
     }
@@ -41,7 +41,7 @@ bool client_channel_state::init()
         LOG_ERROR("Can't connect() to {}. {} (skipped)", server_channel_sockaddr.to_string(), socket_error_description());
         return false;
     }
-    LOG_INFO("Connected to channel {}", server_channel_sockaddr.to_string());
+    LOG_DEBUG("Connected to channel {}", server_channel_sockaddr.to_string());
 
     thread_work = std::thread([this]() {
         try {
