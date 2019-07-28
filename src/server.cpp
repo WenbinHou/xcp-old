@@ -60,14 +60,14 @@ void client_instance::fn_portal()
                 if (transfer_request.is_from_server_to_client) {  // from server to client
                     ASSERT(!transfer_request.file_size.has_value());
                     this->transfer = std::make_shared<transfer_source>(transfer_request.server_path);
-                    msg.file_size = this->transfer->file_size;
+                    msg.file_size = this->transfer->get_file_size();
                 }
                 else {  // from client to server
                     ASSERT(transfer_request.file_size.has_value());
                     this->transfer = std::make_shared<transfer_destination>(
                         transfer_request.client_file_name,
                         transfer_request.server_path);
-                    std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(
+                    std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file(
                         transfer_request.file_size.value(),
                         server_portal.program_options->total_channel_repeats_count);
                 }

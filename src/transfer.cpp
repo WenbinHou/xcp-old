@@ -46,15 +46,17 @@ namespace xcp
 #   error "Unknown platform"
 #endif
 
+        ASSERT(this->_file_size != TRANSFER_INVALID_FILE_SIZE);
+
         while (true) {
             const uint64_t curr = _curr_offset.fetch_add((uint64_t)BLOCK_SIZE);
-            if (curr >= this->file_size) {
+            if (curr >= this->_file_size) {
                 break;
             }
 
             uint32_t block_size = BLOCK_SIZE;
-            if (curr + BLOCK_SIZE >= this->file_size) {
-                block_size = (uint32_t)(this->file_size - curr);
+            if (curr + BLOCK_SIZE >= this->_file_size) {
+                block_size = (uint32_t)(this->_file_size - curr);
             }
 
             char header[12];
@@ -183,7 +185,7 @@ namespace xcp
             LOG_ERROR("{}", message);
             throw transfer_error(EIO, message);
         }
-        this->file_size = stdfs::file_size(file_path);
+        this->_file_size = stdfs::file_size(file_path);  // TODO: use Windows API and check error
 
 #elif PLATFORM_LINUX
         _file_handle = open(file_path.c_str(), O_RDONLY | O_CLOEXEC);
@@ -191,13 +193,13 @@ namespace xcp
             LOG_ERROR("open() {} for read failed. errno = {} ({})", file_path.c_str(), errno, strerror(errno));
             throw transfer_error(errno, std::string("open() ") + file_path.c_str() + " for read failed");
         }
-        this->file_size = stdfs::file_size(file_path);
+        this->_file_size = stdfs::file_size(file_path);  // TODO: use Linux API and check error
 
 #else
 #   error "Unknown platform"
 #endif
 
-        //TODO: ASSERT(this->file_size != -1);
+        ASSERT(this->_file_size != TRANSFER_INVALID_FILE_SIZE);
     }
 
     void transfer_source::dispose_impl() noexcept /*override*/
@@ -353,6 +355,7 @@ namespace xcp
         }
 
         if (_dst_file_mapped != nullptr) {
+            ASSERT(this->_file_size != TRANSFER_INVALID_FILE_SIZE);
             // TODO: FlushViewOfFile?
             UnmapViewOfFile(_dst_file_mapped);
             _dst_file_mapped = nullptr;
@@ -365,8 +368,9 @@ namespace xcp
         }
 
         if (_dst_file_mapped != nullptr) {
+            ASSERT(this->_file_size != TRANSFER_INVALID_FILE_SIZE);
             // TODO: msync?
-            munmap(_dst_file_mapped, this->file_size);
+            munmap(_dst_file_mapped, this->_file_size);
             _dst_file_mapped = nullptr;
         }
 #else
@@ -423,10 +427,11 @@ namespace xcp
         error_cleanup.suppress_sweep();
     }
 
-    void transfer_destination::init_file_size(const uint64_t the_file_size, const size_t total_channel_repeats_count)
+    void transfer_destination::init_file(const uint64_t file_size, const size_t total_channel_repeats_count)
     {
+        ASSERT(file_size != TRANSFER_INVALID_FILE_SIZE);
+        this->_file_size = file_size;
         this->_total_channel_repeats_count = total_channel_repeats_count;
-        this->file_size = the_file_size;
 
 #if PLATFORM_WINDOWS
         _file_handle = CreateFileW(
@@ -445,15 +450,15 @@ namespace xcp
             throw transfer_error(EIO, message);
         }
 
-        // truncate file to file_size
+        // truncate file to _file_size
         {
-            // move file pointer to file_size
+            // move file pointer to _file_size
             LARGE_INTEGER eof;
-            eof.QuadPart = (LONGLONG)file_size;
+            eof.QuadPart = (LONGLONG)this->_file_size;
             if (!SetFilePointerEx(_file_handle, eof, NULL, FILE_BEGIN)) {
                 const DWORD gle = GetLastError();
                 const std::string message = std::string("SetFilePointerEx() ") + _dst_file_path.u8string() + " to " +
-                                            std::to_string(file_size) + " failed. GetLastError = " +
+                                            std::to_string(_file_size) + " failed. GetLastError = " +
                                             std::to_string(gle) + " (" + infra::str_getlasterror(gle) + ")";
                 LOG_ERROR("{}", message);
                 throw transfer_error(EIO, message);
@@ -462,7 +467,7 @@ namespace xcp
             if (!SetEndOfFile(_file_handle)) {
                 const DWORD gle = GetLastError();
                 const std::string message = std::string("SetEndOfFile() ") + _dst_file_path.u8string() + " at " +
-                                            std::to_string(file_size) + " failed. GetLastError = " +
+                                            std::to_string(_file_size) + " failed. GetLastError = " +
                                             std::to_string(gle) + " (" + infra::str_getlasterror(gle) + ")";
                 LOG_ERROR("{}", message);
                 throw transfer_error(EIO, message);
@@ -479,10 +484,10 @@ namespace xcp
             }
         }
 
-        if (file_size > 0) {
-            if (file_size > std::numeric_limits<size_t>::max()) {
-                LOG_ERROR("File size is too large for this platform: {}", file_size);
-                throw transfer_error(ENOSYS, std::string("File size is too large for this platform: ") + std::to_string(file_size));
+        if (_file_size > 0) {
+            if (_file_size > std::numeric_limits<size_t>::max()) {
+                LOG_ERROR("File size is too large for this platform: {}", _file_size);
+                throw transfer_error(ENOSYS, std::string("File size is too large for this platform: ") + std::to_string(_file_size));
             }
 
             HANDLE hMap = CreateFileMappingW(
@@ -495,7 +500,7 @@ namespace xcp
             if (hMap == NULL) {
                 const DWORD gle = GetLastError();
                 const std::string message = std::string("CreateFileMappingW() ") + _dst_file_path.u8string() + " (size: " +
-                                            std::to_string(file_size) + ") failed. GetLastError = " +
+                                            std::to_string(_file_size) + ") failed. GetLastError = " +
                                             std::to_string(gle) + " (" + infra::str_getlasterror(gle) + ")";
                 LOG_ERROR("{}", message);
                 throw transfer_error(EIO, message);
@@ -515,7 +520,7 @@ namespace xcp
             if (_dst_file_mapped == NULL) {
                 const DWORD gle = GetLastError();
                 const std::string message = std::string("MapViewOfFile() ") + _dst_file_path.u8string() + " (size: " +
-                                            std::to_string(file_size) + ") failed. GetLastError = " +
+                                            std::to_string(_file_size) + ") failed. GetLastError = " +
                                             std::to_string(gle) + " (" + infra::str_getlasterror(gle) + ")";
                 LOG_ERROR("{}", message);
                 throw transfer_error(EIO, message);
@@ -530,15 +535,15 @@ namespace xcp
             throw transfer_error(errno, std::string("open() ") + _dst_file_path.c_str() + " for write failed");
         }
 
-        if (file_size > 0) {
-            if (file_size > std::numeric_limits<size_t>::max()) {
-                LOG_ERROR("File size is too large for this platform: {}", file_size);
-                throw transfer_error(ENOSYS, std::string("File size is too large for this platform: ") + std::to_string(file_size));
+        if (_file_size > 0) {
+            if (_file_size > std::numeric_limits<size_t>::max()) {
+                LOG_ERROR("File size is too large for this platform: {}", _file_size);
+                throw transfer_error(ENOSYS, std::string("File size is too large for this platform: ") + std::to_string(_file_size));
             }
 
-            if (ftruncate64(_file_handle, file_size) != 0) {
-                LOG_ERROR("ftruncate64() {} to {} failed. errno = {} ({})", _dst_file_path.c_str(), file_size, errno, strerror(errno));
-                throw transfer_error(errno, std::string("ftruncate64() ") + _dst_file_path.c_str() + " to " + std::to_string(file_size) + " failed");
+            if (ftruncate64(_file_handle, _file_size) != 0) {
+                LOG_ERROR("ftruncate64() {} to {} failed. errno = {} ({})", _dst_file_path.c_str(), _file_size, errno, strerror(errno));
+                throw transfer_error(errno, std::string("ftruncate64() ") + _dst_file_path.c_str() + " to " + std::to_string(_file_size) + " failed");
             }
 
 #   if !defined(MAP_HUGE_2MB)
@@ -549,14 +554,14 @@ namespace xcp
 #   endif
             _dst_file_mapped = mmap(
                 nullptr,
-                (size_t)file_size,
+                (size_t)_file_size,
                 PROT_READ | PROT_WRITE,
                 MAP_SHARED,  // TODO: support MAP_HUGETLB | MAP_HUGE_2MB ?
                 _file_handle,
                 0);
             if (_dst_file_mapped == MAP_FAILED) {
                 _dst_file_mapped = nullptr;
-                LOG_ERROR("mmap({}, size={}) for write failed. errno = {} ({})", _dst_file_path.c_str(), file_size, errno, strerror(errno));
+                LOG_ERROR("mmap({}, size={}) for write failed. errno = {} ({})", _dst_file_path.c_str(), _file_size, errno, strerror(errno));
                 throw transfer_error(errno, std::string("mmap() ") + _dst_file_path.c_str() + " for write failed");
             }
             LOG_TRACE("mmap() {} to {}", _dst_file_path.c_str(), _dst_file_mapped);

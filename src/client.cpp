@@ -234,7 +234,7 @@ void client_portal_state::fn_thread_work()
         else {  // from client to server
             msg.server_path = program_options->arg_to_path.path;
             msg.client_file_name = stdfs::path(program_options->arg_from_path.path).filename().string();
-            msg.file_size = this->transfer->file_size;
+            msg.file_size = this->transfer->get_file_size();
         }
 
         if (!message_send(sock, msg)) {
@@ -276,7 +276,7 @@ void client_portal_state::fn_thread_work()
         if (program_options->is_from_server_to_client) {  // from server to client
             ASSERT(msg.file_size.has_value());
             try {
-                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(msg.file_size.value(), total_channel_repeats_count);
+                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file(msg.file_size.value(), total_channel_repeats_count);
             }
             catch(const transfer_error& ex) {
                 LOG_ERROR("Transfer error: {}. errno = {} ({})", ex.error_message, ex.error_code, strerror(ex.error_code));
