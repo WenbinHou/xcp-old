@@ -91,13 +91,20 @@ namespace xcp
                 }
                 else {
                     const int wsagle = WSAGetLastError();
-                    if (wsagle == WSA_IO_PENDING || wsagle == ERROR_IO_PENDING) {
+                    static_assert(WSA_IO_PENDING == ERROR_IO_PENDING);
+                    if (wsagle == WSA_IO_PENDING) {
                         DWORD written = 0;
-                        if (!GetOverlappedResult(/*this->_file_handle*/NULL, &overlapped, &written, TRUE)) { // TODO: what handle?
+                        if (!GetOverlappedResult((HANDLE)sock, &overlapped, &written, TRUE)) {
                             LOG_ERROR("GetOverlappedResult() failed. GetLastError = {} ({})", GetLastError(), infra::str_getlasterror(GetLastError()));
                             return false;
                         }
-                        LOG_TRACE("written: {}", written);  // TODO?
+
+                        const uint32_t expected_written = block_size + sizeof(header);
+                        if (written != expected_written) {
+                            LOG_ERROR("TransmitFile() overlapped result error: expected written {} bytes, actually written {} bytes",
+                                      expected_written, written);
+                            return false;
+                        }
                     }
                     else {
                         LOG_ERROR("TransmitFile() failed. WSAGetLastError = {} ({})", wsagle, infra::str_getlasterror(wsagle));
