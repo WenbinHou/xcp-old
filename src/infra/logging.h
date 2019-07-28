@@ -18,9 +18,9 @@ namespace infra
         try {
             details::g_logger = spdlog::stderr_color_mt("console", spdlog::color_mode::automatic);
 #if PLATFORM_WINDOWS || PLATFORM_LINUX
-            details::g_logger->set_pattern("[%Y-%m-%d %T.%e %z] [%t][%s:%#] %^%L: %v%$    // %!");
+            details::g_logger->set_pattern("[%Y-%m-%d %T.%e %z] [%t][%s:%#] %^%L: %v%$");
 #elif PLATFORM_CYGWIN
-            details::g_logger->set_pattern("[%Y-%m-%d %T.%e %z] [-1][%s:%#] %^%L: %v%$    // %!");  // threadid is not available in Cygwin
+            details::g_logger->set_pattern("[%Y-%m-%d %T.%e %z] [-1][%s:%#] %^%L: %v%$");  // threadid is not available in Cygwin
 #else
 #   error "Unknown platform"
 #endif
