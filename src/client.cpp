@@ -1,21 +1,16 @@
 #include "common.h"
 
-// TODO: refactor and remove using namespace
-using namespace xcp;
-using namespace infra;
-
-
 
 //==============================================================================
 // struct client_channel_state
 //==============================================================================
 
-void client_channel_state::dispose_impl() noexcept /*override*/
+void xcp::client_channel_state::dispose_impl() noexcept /*override*/
 {
-    if (sock != INVALID_SOCKET_VALUE) {
+    if (sock != infra::INVALID_SOCKET_VALUE) {
         LOG_DEBUG("Close channel: {}", server_channel_sockaddr.to_string());
-        close_socket(sock);
-        sock = INVALID_SOCKET_VALUE;
+        infra::close_socket(sock);
+        sock = infra::INVALID_SOCKET_VALUE;
     }
 
     if (thread_work.joinable()) {
@@ -23,22 +18,22 @@ void client_channel_state::dispose_impl() noexcept /*override*/
     }
 }
 
-bool client_channel_state::init()
+bool xcp::client_channel_state::init()
 {
     sock = socket(server_channel_sockaddr.family(), SOCK_STREAM, IPPROTO_TCP);
-    if (sock == INVALID_SOCKET_VALUE) {
-        LOG_ERROR("Can't create socket for channel {}. {}", server_channel_sockaddr.to_string(), socket_error_description());
+    if (sock == infra::INVALID_SOCKET_VALUE) {
+        LOG_ERROR("Can't create socket for channel {}. {}", server_channel_sockaddr.to_string(), infra::socket_error_description());
         return false;
     }
 
-    sweeper sweep = [&]() {
-        close_socket(sock);
-        sock = INVALID_SOCKET_VALUE;
+    infra::sweeper sweep = [&]() {
+        infra::close_socket(sock);
+        sock = infra::INVALID_SOCKET_VALUE;
     };
 
     // Connect to specified endpoint
     if (connect(sock, server_channel_sockaddr.address(), server_channel_sockaddr.socklen()) != 0) {
-        LOG_ERROR("Can't connect() to {}. {} (skipped)", server_channel_sockaddr.to_string(), socket_error_description());
+        LOG_ERROR("Can't connect() to {}. {} (skipped)", server_channel_sockaddr.to_string(), infra::socket_error_description());
         return false;
     }
     LOG_DEBUG("Connected to channel {}", server_channel_sockaddr.to_string());
@@ -58,9 +53,9 @@ bool client_channel_state::init()
 }
 
 
-void client_channel_state::fn_thread_work()
+void xcp::client_channel_state::fn_thread_work()
 {
-    sweeper exit_cleanup = [&]() {
+    infra::sweeper exit_cleanup = [&]() {
         // Just dispose 
         this->portal.async_dispose(false);
     };
@@ -69,10 +64,10 @@ void client_channel_state::fn_thread_work()
     // Send identity
     //
     {
-        const int cnt = (int)send(sock, (char*)&portal.client_identity, sizeof(identity_t), 0);
-        if (cnt != (int)sizeof(identity_t)) {
+        const int cnt = (int)send(sock, (char*)&portal.client_identity, sizeof(infra::identity_t), 0);
+        if (cnt != (int)sizeof(infra::identity_t)) {
             LOG_ERROR("Channel {}: send() identity to peer expects {}, but returns {}. {}",
-                      server_channel_sockaddr.to_string(), sizeof(identity_t), cnt, socket_error_description());
+                      server_channel_sockaddr.to_string(), sizeof(infra::identity_t), cnt, infra::socket_error_description());
             return;
         }
 
@@ -98,7 +93,7 @@ void client_channel_state::fn_thread_work()
 // struct client_portal_state
 //==============================================================================
 
-bool client_portal_state::init()
+bool xcp::client_portal_state::init()
 {
     //
     // Prepare file
@@ -120,21 +115,21 @@ bool client_portal_state::init()
 
 
     bool connected = false;
-    for (const tcp_sockaddr& addr : program_options->server_portal.resolved_sockaddrs) {
+    for (const infra::tcp_sockaddr& addr : program_options->server_portal.resolved_sockaddrs) {
         sock = socket(addr.family(), SOCK_STREAM, IPPROTO_TCP);
-        if (sock == INVALID_SOCKET_VALUE) {
-            LOG_WARN("Can't create socket for portal {}. {} (skipped)", addr.to_string(), socket_error_description());
+        if (sock == infra::INVALID_SOCKET_VALUE) {
+            LOG_WARN("Can't create socket for portal {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
             continue;
         }
 
-        sweeper sweep = [&]() {
-            close_socket(sock);
-            sock = INVALID_SOCKET_VALUE;
+        infra::sweeper sweep = [&]() {
+            infra::close_socket(sock);
+            sock = infra::INVALID_SOCKET_VALUE;
         };
 
         // Connect to specified endpoint
         if (connect(sock, addr.address(), addr.socklen()) != 0) {
-            LOG_WARN("Can't connect() to {}. {} (skipped)", addr.to_string(), socket_error_description());
+            LOG_WARN("Can't connect() to {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
             continue;
         }
 
@@ -142,7 +137,7 @@ bool client_portal_state::init()
         connected_remote_endpoint = addr;  // actually only family is important
         socklen_t len = connected_remote_endpoint.socklen();
         if (getpeername(sock, connected_remote_endpoint.address(), &len) != 0) {
-            LOG_ERROR("getpeername() failed. Can't get connected endpoint for {}. {} (skipped)", addr.to_string(), socket_error_description());
+            LOG_ERROR("getpeername() failed. Can't get connected endpoint for {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
             continue;
         }
 
@@ -170,12 +165,12 @@ bool client_portal_state::init()
     return true;
 }
 
-void client_portal_state::dispose_impl() noexcept
+void xcp::client_portal_state::dispose_impl() noexcept
 {
-    if (sock != INVALID_SOCKET_VALUE) {
+    if (sock != infra::INVALID_SOCKET_VALUE) {
         LOG_INFO("Close server portal {} (peer: {})", program_options->server_portal.to_string(), connected_remote_endpoint.to_string());
-        close_socket(sock);
-        sock = INVALID_SOCKET_VALUE;
+        infra::close_socket(sock);
+        sock = infra::INVALID_SOCKET_VALUE;
     }
 
     if (thread_work.joinable()) {
@@ -195,13 +190,13 @@ void client_portal_state::dispose_impl() noexcept
     }
 }
 
-void client_portal_state::fn_thread_work()
+void xcp::client_portal_state::fn_thread_work()
 {
-    sweeper sweep = [&]() {
+    infra::sweeper sweep = [&]() {
         this->async_dispose(false);
 
         // Require exits
-        sighandle::require_exit();
+        infra::sighandle::require_exit();
     };
 
     LOG_TRACE("Server portal connected: {}", connected_remote_endpoint.to_string());
@@ -211,10 +206,10 @@ void client_portal_state::fn_thread_work()
     // Send my identity
     //
     {
-        const int cnt = (int)send(sock, (char*)&client_identity, sizeof(identity_t), 0);
-        if (cnt != (int)sizeof(identity_t)) {
+        const int cnt = (int)send(sock, (char*)&client_identity, sizeof(infra::identity_t), 0);
+        if (cnt != (int)sizeof(infra::identity_t)) {
             LOG_ERROR("Client portal: send() identity to peer {} expects {}, but returns {}. {}",
-                      connected_remote_endpoint.to_string(), sizeof(identity_t), cnt, socket_error_description());
+                      connected_remote_endpoint.to_string(), sizeof(infra::identity_t), cnt, infra::socket_error_description());
             return;
         }
 
