@@ -27,6 +27,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    // Initialize signal handler
+    infra::sighandle::setup_signal_handler();
+
+
     {
         std::shared_ptr<xcp::server_portal_state> server_portal = std::make_shared<xcp::server_portal_state>(options);
 

@@ -92,6 +92,19 @@ namespace infra
 
             #undef _SETUP_FOR_SIGNAL
 
+            #define _IGNORE_SIGNAL(_Signal_) \
+                do { \
+                    if (signal(_Signal_, SIG_IGN) == SIG_ERR) { \
+                        LOG_ERROR("signal() for {} failed: errno = {} ({})", #_Signal_, errno, strerror(errno)); \
+                        THROW_SYSTEM_ERROR(errno, signal); \
+                    } \
+                    LOG_TRACE("Ignore signal: {}", #_Signal_); \
+                } while(false)
+
+            _IGNORE_SIGNAL(SIGPIPE);
+
+            #undef _IGNORE_SIGNAL
+
 #elif PLATFORM_WINDOWS
 
             // Signal on Windows

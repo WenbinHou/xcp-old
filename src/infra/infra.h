@@ -33,9 +33,6 @@ namespace infra
 
             // Initialize network
             global_initialize_network();
-
-            // Initialize signal handler
-            sighandle::setup_signal_handler();
         }
 
         ~global_initialize_finalize_t() noexcept
