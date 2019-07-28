@@ -46,7 +46,7 @@ namespace xcp
 
     struct message_server_ready_to_transfer : message_base<message_type::SERVER_READY_TO_TRANSFER>
     {
-        int error_code;  // always zero
+        int error_code { };  // always zero
         std::string error_message;
 
         XCP_DEFAULT_SERIALIZATION(error_code, error_message)
@@ -54,7 +54,7 @@ namespace xcp
 
     struct message_transfer_destination_finished : message_base<message_type::TRANSFER_DESTINATION_FINISHED>
     {
-        int error_code;
+        int error_code { };
         std::string error_message;
 
         XCP_DEFAULT_SERIALIZATION(error_code, error_message)

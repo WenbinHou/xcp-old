@@ -5940,7 +5940,7 @@ class App {
 
             // LCOV_EXCL_START
         default:
-            HorribleError("unrecognized classifier (you should not see this!)");
+            throw HorribleError("unrecognized classifier (you should not see this!)");
             // LCOV_EXCL_END
         }
         return retval;

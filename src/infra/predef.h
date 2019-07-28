@@ -187,6 +187,19 @@
 #   pragma clang diagnostic ignored "-Wdeprecated"
 
 #elif COMPILER_MSVC
+#   pragma warning(push)
+
+//  Warning C26439: This kind of function may not throw. Declare it 'noexcept'.
+#   pragma warning(disable: 26439)
+
+//  Warning C26451: Arithmetic overflow: Using operator '%operator%' on a %size1% byte value
+//  and then casting the result to a %size2% byte value.
+//  Cast the value to the wider type before calling operator '%operator%' to avoid overflow.
+#   pragma warning(disable: 26451)
+
+//  Warning C26495: Variable '%variable%' is uninitialized. Always initialize a member variable.
+#   pragma warning(disable: 26495)
+
 #else
 #   error "Unknown compiler"
 #endif
@@ -235,6 +248,8 @@
 #   pragma clang diagnostic pop
 
 #elif COMPILER_MSVC
+#   pragma warning(pop)
+
 #else
 #   error "Unknown compiler"
 #endif
