@@ -41,24 +41,30 @@ namespace infra
 
         void async_dispose(const bool wait_for_done)
         {
-            const int status = _status;
-            if (status == STATUS_DISPOSED) {  // quick check: already disposed
-                return;
-            }
+            int status = STATUS_NORMAL;
+            if (_status.compare_exchange_strong(status, STATUS_DISPOSING)) {
 
-            if (status == STATUS_DISPOSING) {  // quick check: already disposing
+                std::thread thr([this]() noexcept -> void {
+                    dispose_impl();
+                    _status = STATUS_DISPOSED;
+                });
+
                 if (wait_for_done) {
-                    wait_for_dispose_done();
+                    thr.join();
+                }
+                else {
+                    thr.detach();
                 }
                 return;
             }
 
-            std::thread thr([&]() -> void { this->dispose(); });
-            if (wait_for_done) {
-                thr.join();
+            if (status == STATUS_DISPOSED) {
+                return;
             }
-            else {
-                thr.detach();
+
+            ASSERT(status == STATUS_DISPOSING);
+            if (wait_for_done) {
+                wait_for_dispose_done();
             }
         }
 
