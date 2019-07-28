@@ -11,11 +11,7 @@ namespace infra
     class disposable
     {
     protected:
-        virtual void dispose_impl() noexcept
-        {
-            LOG_ERROR("======== error! (dispose_impl) ========");
-        };
-
+        virtual void dispose_impl() noexcept = 0;
         disposable() noexcept = default;
 
     public:

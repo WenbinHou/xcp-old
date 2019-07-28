@@ -63,6 +63,7 @@
 
 #   include <winsock2.h>  // This must be put before <windows.h>
 #   include <ws2tcpip.h>
+#   include <mswsock.h>
 
 #   include <windows.h>
 #   include <shlwapi.h>
