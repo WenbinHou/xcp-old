@@ -19,7 +19,7 @@ void xcp::client_instance::fn_portal()
         bool is_from_server_to_client { };
         std::string client_file_name;
         std::string server_path;
-        std::optional<std::uint64_t> file_size;
+        std::optional<basic_file_info> file_info;
     } transfer_request;
     {
         message_client_hello_request msg;
@@ -34,7 +34,7 @@ void xcp::client_instance::fn_portal()
         transfer_request.is_from_server_to_client = msg.is_from_server_to_client;
         transfer_request.client_file_name = std::move(msg.client_file_name);
         transfer_request.server_path = std::move(msg.server_path);
-        transfer_request.file_size = std::move(msg.file_size);
+        transfer_request.file_info = std::move(msg.file_info);
     }
 
 
@@ -54,17 +54,17 @@ void xcp::client_instance::fn_portal()
         if (msg.error_code == 0) {
             try {
                 if (transfer_request.is_from_server_to_client) {  // from server to client
-                    ASSERT(!transfer_request.file_size.has_value());
+                    ASSERT(!transfer_request.file_info.has_value());
                     this->transfer = std::make_shared<transfer_source>(transfer_request.server_path);
-                    msg.file_size = this->transfer->get_file_size();
+                    msg.file_info = this->transfer->get_file_info();
                 }
                 else {  // from client to server
-                    ASSERT(transfer_request.file_size.has_value());
+                    ASSERT(transfer_request.file_info.has_value());
                     this->transfer = std::make_shared<transfer_destination>(
                         transfer_request.client_file_name,
                         transfer_request.server_path);
                     std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file(
-                        transfer_request.file_size.value(),
+                        transfer_request.file_info.value(),
                         server_portal.program_options->total_channel_repeats_count);
                 }
             }

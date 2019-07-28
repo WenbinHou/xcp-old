@@ -30,20 +30,19 @@ namespace xcp
         virtual bool invoke_portal(infra::socket_t sock) = 0;
         virtual bool invoke_channel(infra::socket_t sock) = 0;
 
-        uint64_t get_file_size() const noexcept
+        const basic_file_info& get_file_info() const noexcept
         {
-            ASSERT(_file_size != TRANSFER_INVALID_FILE_SIZE);
-            return _file_size;
+            ASSERT(_file_info.has_value());
+            return _file_info.value();
         }
 
         virtual ~transfer_base() noexcept
         {
-            _file_size = TRANSFER_INVALID_FILE_SIZE;
+            _file_info.reset();
         }
 
     protected:
-        static constexpr const uint64_t TRANSFER_INVALID_FILE_SIZE = (uint64_t)-1;
-        uint64_t _file_size = TRANSFER_INVALID_FILE_SIZE;  // both for source and destination
+        std::optional<basic_file_info> _file_info { };  // both for source and destination
     };
 
     struct transfer_source : transfer_base
@@ -82,7 +81,7 @@ namespace xcp
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_destination)
 
         transfer_destination(const std::string& src_file_name, const std::string& dst_path);  // throws transfer_error
-        void init_file(uint64_t file_size, size_t total_channel_repeats_count);  // throws transfer_error
+        void init_file(const basic_file_info& file_info, size_t total_channel_repeats_count);  // throws transfer_error
 
         bool invoke_portal(infra::socket_t sock) override;
         bool invoke_channel(infra::socket_t sock) override;
