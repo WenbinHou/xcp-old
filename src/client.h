@@ -22,10 +22,10 @@ namespace xcp
               server_channel_sockaddr(std::move(addr))
         { }
 
-        void dispose_impl() noexcept override;
         bool init();
 
-        virtual ~client_channel_state() noexcept = default;
+        void dispose_impl() noexcept override final;
+        ~client_channel_state() noexcept override final { this->async_dispose(true); }
 
     private:
         void fn_thread_work();
@@ -51,9 +51,9 @@ namespace xcp
         }
 
         bool init();
-        void dispose_impl() noexcept override;
 
-        virtual ~client_portal_state() noexcept = default;
+        void dispose_impl() noexcept override final;
+        ~client_portal_state() noexcept override final { this->async_dispose(true); }
 
     private:
         void fn_thread_work();

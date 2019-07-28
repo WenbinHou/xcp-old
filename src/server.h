@@ -32,8 +32,8 @@ namespace xcp
 
         void fn_portal();
         void fn_channel(infra::socket_t accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint);
-        void dispose_impl() noexcept override;
-        virtual ~client_instance() noexcept = default;
+        void dispose_impl() noexcept override final;
+        ~client_instance() noexcept override final { this->async_dispose(true); }
 
     public:
         server_portal_state& server_portal;
@@ -67,8 +67,8 @@ namespace xcp
         { }
 
         bool init();
-        void dispose_impl() noexcept override;
-        virtual ~server_channel_state() noexcept = default;
+        void dispose_impl() noexcept override final;
+        ~server_channel_state() noexcept override final { this->async_dispose(true); }
 
     private:
         void fn_thread_accept();
@@ -93,8 +93,8 @@ namespace xcp
         { }
 
         bool init();
-        void dispose_impl() noexcept override;
-        virtual ~server_portal_state() noexcept = default;
+        void dispose_impl() noexcept override final;
+        ~server_portal_state() noexcept override final { this->async_dispose(true); }
 
     private:
         void fn_thread_accept();

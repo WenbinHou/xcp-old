@@ -67,7 +67,9 @@ void client_instance::fn_portal()
                     this->transfer = std::make_shared<transfer_destination>(
                         transfer_request.client_file_name,
                         transfer_request.server_path);
-                    std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(transfer_request.file_size.value());
+                    std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(
+                        transfer_request.file_size.value(),
+                        server_portal.program_options->total_channel_repeats_count);
                 }
             }
             catch(const transfer_error& ex) {
@@ -182,6 +184,12 @@ void client_instance::dispose_impl() noexcept /*override*/
             }
         }
         channel_threads.clear();
+    }
+
+    // Close transfer file handles (if any)
+    if (this->transfer) {
+        this->transfer->dispose();
+        this->transfer.reset();
     }
 
     // TODO: Remove itself from server_portal_state.clients? or do this in dtor!
@@ -377,6 +385,9 @@ bool server_portal_state::init()
             std::shared_ptr<xcp::server_channel_state> chan = std::make_shared<xcp::server_channel_state>(*this, ep);
             if (!chan->init()) {
                 LOG_ERROR("Init server_channel_state failed for {}", ep.to_string());
+
+                chan->dispose();
+                chan.reset();
                 return false;
             }
             channels.emplace_back(std::move(chan));

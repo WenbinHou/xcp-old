@@ -11,7 +11,10 @@ namespace infra
     class disposable
     {
     protected:
-        virtual void dispose_impl() noexcept = 0;
+        virtual void dispose_impl() noexcept
+        {
+            LOG_ERROR("======== error! (dispose_impl) ========");
+        };
 
         disposable() noexcept = default;
 
@@ -21,9 +24,7 @@ namespace infra
 
         virtual ~disposable() noexcept
         {
-            if (_status != STATUS_DISPOSED) {
-                async_dispose(true);
-            }
+            assert(_status == STATUS_DISPOSED);
         }
 
         void dispose() noexcept
@@ -56,7 +57,7 @@ namespace infra
                 return;
             }
 
-            std::thread thr([this]() -> void { this->dispose(); });
+            std::thread thr([&]() -> void { this->dispose(); });
             if (wait_for_done) {
                 thr.join();
             }

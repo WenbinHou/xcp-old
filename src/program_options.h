@@ -57,7 +57,7 @@ namespace xcp
 
         static constexpr const char SERVER_CHANNEL_HOST[] = "[::]";
         static constexpr const uint16_t SERVER_CHANNEL_PORT = 0;
-        static constexpr const size_t SERVER_CHANNEL_REPEATS = 8;
+        static constexpr const size_t SERVER_CHANNEL_REPEATS = 12;
     };
 
     struct base_program_options

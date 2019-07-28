@@ -187,6 +187,12 @@ void client_portal_state::dispose_impl() noexcept
         chan->dispose();
     }
     channels.clear();
+
+    // Close transfer file handles (if any)
+    if (this->transfer) {
+        this->transfer->dispose();
+        this->transfer.reset();
+    }
 }
 
 void client_portal_state::fn_thread_work()
@@ -257,11 +263,20 @@ void client_portal_state::fn_thread_work()
 
         server_channels = std::move(msg.server_channels);
 
+        // Get total_channel_repeats_count
+        size_t total_channel_repeats_count = 0;
+        for (const auto& tuple : server_channels) {
+            //const infra::tcp_sockaddr& addr = std::get<0>(tuple);
+            const size_t repeats = std::get<1>(tuple);
+            total_channel_repeats_count += repeats;
+        }
+        LOG_TRACE("Client portal: server total_channel_repeats_count: {}", total_channel_repeats_count);
+
         // Init file size if from server to client
         if (program_options->is_from_server_to_client) {  // from server to client
             assert(msg.file_size.has_value());
             try {
-                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(msg.file_size.value());
+                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(msg.file_size.value(), total_channel_repeats_count);
             }
             catch(const transfer_error& ex) {
                 LOG_ERROR("Transfer error: {}. errno = {} ({})", ex.error_message, ex.error_code, strerror(ex.error_code));
@@ -286,7 +301,7 @@ void client_portal_state::fn_thread_work()
 
             size_t cnt = 0;
             for (size_t i = 0; i < repeats; ++i) {
-                if (++cnt >= 16) {
+                if (++cnt >= 16) {  // don't sleep on first 16 connections
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));  // sleep 5 msec
                 }
 

@@ -20,13 +20,12 @@ namespace xcp
         { }
     };
 
-    struct transfer_base
+    struct transfer_base : infra::disposable
     {
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(transfer_base)
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_base)
         transfer_base() noexcept = default;
-        virtual ~transfer_base() noexcept = default;
 
         virtual bool invoke_portal(infra::socket_t sock) = 0;
         virtual bool invoke_channel(infra::socket_t sock) = 0;
@@ -40,13 +39,28 @@ namespace xcp
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(transfer_source)
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_source)
-        virtual ~transfer_source() noexcept = default;
+        explicit transfer_source(const std::string& src_path);  // throws transfer_error
 
-        transfer_source(const std::string& src_path);  // throws transfer_error
-
-    public:
         bool invoke_portal(infra::socket_t sock) override;
         bool invoke_channel(infra::socket_t sock) override;
+
+        void dispose_impl() noexcept override final;
+        ~transfer_source() noexcept override final { this->async_dispose(true); }
+
+    private:
+        void prepare_transfer_regular_file(const stdfs::path& file_path);
+
+    private:
+        static constexpr const uint32_t BLOCK_SIZE = 1024 * 1024 * 1;  // block: 1 MB
+
+        std::atomic_uint64_t _curr_offset = 0;
+#if PLATFORM_WINDOWS
+        HANDLE _file_handle = INVALID_HANDLE_VALUE;
+#elif PLATFORM_LINUX
+        int _file_handle = -1;
+#else
+#   error "Unknown platform"
+#endif
     };
 
     struct transfer_destination : transfer_base
@@ -54,14 +68,30 @@ namespace xcp
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(transfer_destination)
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_destination)
-        virtual ~transfer_destination() noexcept = default;
 
         transfer_destination(const std::string& src_file_name, const std::string& dst_path);  // throws transfer_error
-        void init_file_size(uint64_t file_size);  // throws transfer_error
+        void init_file_size(uint64_t file_size, size_t total_channel_repeats_count);  // throws transfer_error
 
-    public:
         bool invoke_portal(infra::socket_t sock) override;
         bool invoke_channel(infra::socket_t sock) override;
+
+        void dispose_impl() noexcept override final;
+        ~transfer_destination() noexcept override final { this->async_dispose(true); }
+
+    private:
+        size_t _total_channel_repeats_count;
+        std::atomic_size_t _finished_channel_repeats_count { 0 };
+        infra::semaphore _sem_all_channels_finished { 0 };
+
+        stdfs::path _dst_file_path;
+        void* _dst_file_mapped = nullptr;
+#if PLATFORM_WINDOWS
+        HANDLE _file_handle = INVALID_HANDLE_VALUE;
+#elif PLATFORM_LINUX
+        int _file_handle = -1;
+#else
+#   error "Unknown platform"
+#endif
     };
 
 }  // namespace xcp
