@@ -220,6 +220,10 @@ namespace xcp
 
     transfer_source::transfer_source(const std::string& src_path)
     {
+        infra::sweeper error_cleanup = [&]() {
+            this->dispose();
+        };
+
         const stdfs::path src_real_path = stdfs::weakly_canonical(src_path);
         const stdfs::file_status status = stdfs::status(src_real_path);
         switch (status.type()) {
@@ -252,6 +256,8 @@ namespace xcp
                 throw transfer_error(ENOSYS, "Unknown file type: " + src_path);
             }
         }
+
+        error_cleanup.suppress_sweep();
     }
 
 
@@ -370,6 +376,10 @@ namespace xcp
 
     transfer_destination::transfer_destination(const std::string& src_file_name, const std::string& dst_path)
     {
+        infra::sweeper error_cleanup = [&]() {
+            this->dispose();
+        };
+
         stdfs::path dst_real_path = stdfs::weakly_canonical(dst_path);
         const stdfs::file_status status = stdfs::status(dst_real_path);
         switch (status.type()) {
@@ -409,6 +419,8 @@ namespace xcp
         }
 
         LOG_TRACE("Save to destination file: {}", _dst_file_path.string());
+
+        error_cleanup.suppress_sweep();
     }
 
     void transfer_destination::init_file_size(const uint64_t the_file_size, const size_t total_channel_repeats_count)
