@@ -81,7 +81,7 @@ void client_channel_state::fn_thread_work()
 
     // Run transfer
     {
-        assert(portal.transfer != nullptr);
+        ASSERT(portal.transfer != nullptr);
         const bool success = portal.transfer->invoke_channel(sock);
         if (!success) {
             LOG_ERROR("Channel {}: transfer failed", server_channel_sockaddr.to_string());
@@ -274,7 +274,7 @@ void client_portal_state::fn_thread_work()
 
         // Init file size if from server to client
         if (program_options->is_from_server_to_client) {  // from server to client
-            assert(msg.file_size.has_value());
+            ASSERT(msg.file_size.has_value());
             try {
                 std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file_size(msg.file_size.value(), total_channel_repeats_count);
             }
@@ -284,7 +284,7 @@ void client_portal_state::fn_thread_work()
             }
         }
         else {  // from client to server
-            assert(!msg.file_size.has_value());
+            ASSERT(!msg.file_size.has_value());
         }
     }
 
@@ -349,7 +349,7 @@ void client_portal_state::fn_thread_work()
 
     // Run transfer
     {
-        assert(this->transfer != nullptr);
+        ASSERT(this->transfer != nullptr);
         const bool success = this->transfer->invoke_portal(sock);
         if (!success) {
             LOG_DEBUG("Client portal: transfer failed");

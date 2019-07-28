@@ -163,7 +163,7 @@ bool xcp::xcp_program_options::post_process()
     // arg_from_path, arg_to_path
     //----------------------------------------------------------------
     if (arg_from_path.is_remote()) {
-        assert(arg_from_path.host.has_value());
+        ASSERT(arg_from_path.host.has_value());
         LOG_INFO("Copy from remote host {} path {}", arg_from_path.host.value(), arg_from_path.path);
     }
     else {
@@ -171,7 +171,7 @@ bool xcp::xcp_program_options::post_process()
     }
 
     if (arg_to_path.is_remote()) {
-        assert(arg_to_path.host.has_value());
+        ASSERT(arg_to_path.host.has_value());
         LOG_INFO("Copy to remote host {} path {}", arg_to_path.host.value(), arg_to_path.path);
     }
     else {

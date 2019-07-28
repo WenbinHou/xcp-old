@@ -317,12 +317,12 @@ namespace xcp
             }
 
             if (block_size == 0) {  // indicating sending is done!
-                assert(offset == -1);
+                ASSERT(offset == -1);
                 LOG_TRACE("Receive done for current channel");
                 break;
             }
 
-            assert(_dst_file_mapped != nullptr);
+            ASSERT(_dst_file_mapped != nullptr);
 
             // Receive body
             {

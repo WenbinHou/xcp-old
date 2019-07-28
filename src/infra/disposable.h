@@ -20,7 +20,7 @@ namespace infra
 
         virtual ~disposable() noexcept
         {
-            assert(_status == STATUS_DISPOSED);
+            ASSERT(_status == STATUS_DISPOSED);
         }
 
         void dispose() noexcept
@@ -74,7 +74,7 @@ namespace infra
                 std::this_thread::yield();
                 //std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-            assert(_status == STATUS_DISPOSED);
+            ASSERT(_status == STATUS_DISPOSED);
         }
 
     private:

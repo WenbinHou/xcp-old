@@ -58,12 +58,12 @@ void client_instance::fn_portal()
         if (msg.error_code == 0) {
             try {
                 if (transfer_request.is_from_server_to_client) {  // from server to client
-                    assert(!transfer_request.file_size.has_value());
+                    ASSERT(!transfer_request.file_size.has_value());
                     this->transfer = std::make_shared<transfer_source>(transfer_request.server_path);
                     msg.file_size = this->transfer->file_size;
                 }
                 else {  // from client to server
-                    assert(transfer_request.file_size.has_value());
+                    ASSERT(transfer_request.file_size.has_value());
                     this->transfer = std::make_shared<transfer_destination>(
                         transfer_request.client_file_name,
                         transfer_request.server_path);
@@ -81,7 +81,7 @@ void client_instance::fn_portal()
 
         if (msg.error_code == 0) {  // no error
             // Tell client: server channels
-            assert(!server_portal.channels.empty());
+            ASSERT(!server_portal.channels.empty());
             for (const std::shared_ptr<xcp::server_channel_state>& chan : server_portal.channels) {
                 msg.server_channels.emplace_back(chan->bound_local_endpoint, chan->required_endpoint.repeats.value());
             }
@@ -138,7 +138,7 @@ void client_instance::fn_channel(infra::socket_t accepted_channel_socket, infra:
 
     // Run transfer
     {
-        assert(this->transfer != nullptr);
+        ASSERT(this->transfer != nullptr);
         const bool success = this->transfer->invoke_channel(accepted_channel_socket);
         if (!success) {
             LOG_ERROR("Server portal (peer {}): transfer failed", channel_peer_endpoint.to_string());
@@ -163,7 +163,7 @@ void client_instance::dispose_impl() noexcept /*override*/
     }
 
     if (portal_thread) {
-        assert(portal_thread->joinable());
+        ASSERT(portal_thread->joinable());
         portal_thread->join();
         portal_thread.reset();
     }
@@ -178,7 +178,7 @@ void client_instance::dispose_impl() noexcept /*override*/
             }
 
             if (pair.second) {
-                assert(pair.second->joinable());
+                ASSERT(pair.second->joinable());
                 pair.second->join();
                 pair.second.reset();
             }
@@ -203,7 +203,7 @@ void client_instance::dispose_impl() noexcept /*override*/
 
 bool server_channel_state::init()
 {
-    assert(!required_endpoint.resolved_sockaddrs.empty());
+    ASSERT(!required_endpoint.resolved_sockaddrs.empty());
 
     bool bound = false;
     for (const tcp_sockaddr& addr : required_endpoint.resolved_sockaddrs) {

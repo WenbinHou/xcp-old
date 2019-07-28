@@ -21,7 +21,7 @@ inline std::thread* launch_thread(const std::function<void(std::thread*)>& fn)
         {
             { std::lock_guard<std::mutex> lock(pair->first); }
 
-            assert(pair->second != nullptr);
+            ASSERT(pair->second != nullptr);
             std::thread* const thr = pair->second;
             delete pair;
 

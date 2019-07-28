@@ -205,7 +205,7 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::resolve()
         return false;
     }
 
-    assert(this->port.has_value());
+    ASSERT(this->port.has_value());
 
     for (addrinfo* p = results; p != nullptr; p = p->ai_next) {
         tcp_sockaddr tmp { };

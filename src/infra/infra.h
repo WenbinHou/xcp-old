@@ -5,6 +5,7 @@
 #include "macro.h"
 
 #include "logging.h"
+#include "assertion.h"
 #include "sweeper.h"
 #include "disposable.h"
 
