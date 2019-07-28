@@ -311,9 +311,13 @@ void xcp::server_channel_state::fn_thread_accept()
         // Create a separated thread to handle the channel
         launch_thread([this, accepted_sock, peer_addr](std::thread* const thr) mutable {
 
-            infra::sweeper sweep = [&]() {
+            infra::sweeper error_cleanup = [&]() {
                 infra::close_socket(accepted_sock);
                 accepted_sock = infra::INVALID_SOCKET_VALUE;
+
+                // Cleanup current thread (make it detached)
+                thr->detach();
+                delete thr;
             };
 
             // Receive identity
@@ -323,7 +327,6 @@ void xcp::server_channel_state::fn_thread_accept()
                 if (cnt != (int)sizeof(identity)) {
                     LOG_ERROR("Server channel: receive identity from peer {} expects {}, but returns {}. {}",
                               peer_addr.to_string(), sizeof(identity), cnt, infra::socket_error_description());
-                    thr->detach();
                     return;
                 }
 
@@ -337,7 +340,6 @@ void xcp::server_channel_state::fn_thread_accept()
                 const auto it = portal.clients.find(identity);
                 if (it == portal.clients.end()) {
                     LOG_ERROR("Server channel: Unknown identity from peer {}", peer_addr.to_string());
-                    thr->detach();
                     return;
                 }
                 client = it->second;
@@ -351,7 +353,6 @@ void xcp::server_channel_state::fn_thread_accept()
                     lock.unlock();
 
                     LOG_ERROR("Server channel: client instance has required dispose()");
-                    thr->detach();
                     return;
                 }
                 else {
@@ -359,7 +360,7 @@ void xcp::server_channel_state::fn_thread_accept()
                 }
             }
 
-            sweep.suppress_sweep();
+            error_cleanup.suppress_sweep();
             client->fn_channel(accepted_sock, peer_addr);
         });
     }
@@ -539,13 +540,15 @@ void xcp::server_portal_state::fn_thread_accept()
 
 void xcp::server_portal_state::fn_task_accepted_portal(std::thread* const thr, infra::socket_t accepted_sock, const infra::tcp_sockaddr& peer_addr)
 {
-    infra::sweeper sweep = [&]() {
+    infra::sweeper error_cleanup = [&]() {
         if (accepted_sock != infra::INVALID_SOCKET_VALUE) {
             infra::close_socket(accepted_sock);
             accepted_sock = infra::INVALID_SOCKET_VALUE;
         }
 
-        // TODO: thr memory leak! (if not added to client)
+        // Cleanup current thread (make it detached)
+        thr->detach();
+        delete thr;
     };
 
 
@@ -583,6 +586,6 @@ void xcp::server_portal_state::fn_task_accepted_portal(std::thread* const thr, i
     }
 
     // Run client's fn_portal
-    sweep.suppress_sweep();
+    error_cleanup.suppress_sweep();
     client->fn_portal();
 }
