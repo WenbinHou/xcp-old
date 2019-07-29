@@ -70,6 +70,12 @@ namespace xcp
         infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
 
         std::shared_ptr<transfer_base> transfer { nullptr };
+
+        std::atomic_int transfer_result_status { TRANSFER_UNKNOWN };
+
+        static constexpr const int TRANSFER_UNKNOWN = 0;  // early stopped before setting a status value
+        static constexpr const int TRANSFER_FAILED = 1;
+        static constexpr const int TRANSFER_SUCCEEDED = 2;
     };
 
 }  // namespace xcp

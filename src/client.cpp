@@ -80,6 +80,7 @@ void xcp::client_channel_state::fn_thread_work()
         const bool success = portal.transfer->invoke_channel(sock);
         if (!success) {
             LOG_ERROR("Channel {}: transfer failed", server_channel_sockaddr.to_string());
+            portal.transfer_result_status = client_portal_state::TRANSFER_FAILED;
             return;
         }
     }
@@ -356,6 +357,18 @@ void xcp::client_portal_state::fn_thread_work()
         const bool success = this->transfer->invoke_portal(sock);
         if (!success) {
             LOG_DEBUG("Client portal: transfer failed");
+            transfer_result_status = TRANSFER_FAILED;
+        }
+        else {
+            int expected = client_portal_state::TRANSFER_UNKNOWN;
+            if (transfer_result_status.compare_exchange_strong(expected, client_portal_state::TRANSFER_SUCCEEDED)) {
+                LOG_DEBUG("Client transfer done successfully");
+            }
+            else {
+                LOG_DEBUG("Client portal: transfer failed");
+            };
         }
     }
+
+    // sweep dtor do cleanups...
 }

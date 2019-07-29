@@ -32,6 +32,7 @@ int main(int argc, char* argv[])
 
 
     std::shared_ptr<xcp::client_portal_state> client_portal = std::make_shared<xcp::client_portal_state>(options);
+    bool success = false;
 
     {
         //
@@ -45,8 +46,9 @@ int main(int argc, char* argv[])
 
             // Close client portal
             client_portal->dispose();
+            success = (client_portal->transfer_result_status == xcp::client_portal_state::TRANSFER_SUCCEEDED);
             client_portal.reset();
-            
+
             LOG_INFO("Bye!");
         };
 
@@ -61,5 +63,5 @@ int main(int argc, char* argv[])
         infra::sighandle::wait_for_exit_required();
     }
 
-    return 0;
+    return (success ? 0 : 1);
 }
