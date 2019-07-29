@@ -7,7 +7,7 @@
 
 void xcp::client_instance::fn_portal()
 {
-    infra::sweeper exit_cleanup = [this]() {
+    const infra::sweeper exit_cleanup = [this]() {
         this->async_dispose(false);
     };
 
@@ -137,7 +137,7 @@ void xcp::client_instance::fn_channel(infra::socket_t accepted_channel_socket, i
         ASSERT(this->transfer != nullptr);
         const bool success = this->transfer->invoke_channel(accepted_channel_socket);
         if (!success) {
-            LOG_ERROR("Server portal (peer {}): transfer failed", channel_peer_endpoint.to_string());
+            LOG_ERROR("Server channel (peer {}): transfer failed", channel_peer_endpoint.to_string());
             return;
         }
     }
@@ -188,7 +188,26 @@ void xcp::client_instance::dispose_impl() noexcept /*override*/
         this->transfer.reset();
     }
 
-    // TODO: Remove itself from server_portal_state.clients? or do this in dtor!
+    // Remove itself from server_portal_state.clients
+    //
+    // If we found server portal is disposing, do not need to do anything
+    // As server portal dispose() will clear all living clients
+    {
+        if (!server_portal.is_dispose_required()) {
+            const infra::identity_t identity = this->client_identity;
+            server_portal_state& portal = this->server_portal;
+
+            // TODO: use thread pool?
+            std::thread thr([identity, &portal]() {
+                if (!portal.is_dispose_required()) {
+                    std::unique_lock<std::shared_mutex> lock(portal.clients_mutex);
+                    portal.clients.erase(identity);
+                    LOG_DEBUG("Remove client instance");
+                }
+            });
+            thr.detach();
+        }
+    }
 }
 
 
