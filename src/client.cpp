@@ -20,24 +20,6 @@ void xcp::client_channel_state::dispose_impl() noexcept /*override*/
 
 bool xcp::client_channel_state::init()
 {
-    sock = socket(server_channel_sockaddr.family(), SOCK_STREAM, IPPROTO_TCP);
-    if (sock == infra::INVALID_SOCKET_VALUE) {
-        LOG_ERROR("Can't create socket for channel {}. {}", server_channel_sockaddr.to_string(), infra::socket_error_description());
-        return false;
-    }
-
-    infra::sweeper sweep = [&]() {
-        infra::close_socket(sock);
-        sock = infra::INVALID_SOCKET_VALUE;
-    };
-
-    // Connect to specified endpoint
-    if (connect(sock, server_channel_sockaddr.address(), server_channel_sockaddr.socklen()) != 0) {
-        LOG_ERROR("Can't connect() to {}. {} (skipped)", server_channel_sockaddr.to_string(), infra::socket_error_description());
-        return false;
-    }
-    LOG_DEBUG("Connected to channel {}", server_channel_sockaddr.to_string());
-
     thread_work = std::thread([this]() {
         try {
             this->fn_thread_work();
@@ -47,17 +29,38 @@ bool xcp::client_channel_state::init()
         }
     });
 
-    sweep.suppress_sweep();
     return true;
 }
 
 
 void xcp::client_channel_state::fn_thread_work()
 {
-    infra::sweeper exit_cleanup = [&]() {
+    infra::sweeper error_cleanup = [&]() {
         // Just dispose 
         this->portal.async_dispose(false);
     };
+
+    //
+    // Create socket
+    //
+    {
+        sock = socket(server_channel_sockaddr.family(), SOCK_STREAM, IPPROTO_TCP);
+        if (sock == infra::INVALID_SOCKET_VALUE) {
+            LOG_ERROR("Can't create socket for channel {}. {}", server_channel_sockaddr.to_string(), infra::socket_error_description());
+            return;
+        }
+    }
+
+    //
+    // Connect to specified channel endpoint
+    //
+    {
+        if (connect(sock, server_channel_sockaddr.address(), server_channel_sockaddr.socklen()) != 0) {
+            LOG_ERROR("Can't connect() to {}. {} (skipped)", server_channel_sockaddr.to_string(), infra::socket_error_description());
+            return;
+        }
+        LOG_DEBUG("Connected to channel {}", server_channel_sockaddr.to_string());
+    }
 
     //
     // Send identity
@@ -84,7 +87,7 @@ void xcp::client_channel_state::fn_thread_work()
         }
     }
 
-    exit_cleanup.suppress_sweep();
+    error_cleanup.suppress_sweep();
 }
 
 
@@ -192,7 +195,7 @@ void xcp::client_portal_state::dispose_impl() noexcept
 
 void xcp::client_portal_state::fn_thread_work()
 {
-    infra::sweeper sweep = [&]() {
+    const infra::sweeper sweep = [&]() {
         this->async_dispose(false);
 
         // Require exits
@@ -364,7 +367,7 @@ void xcp::client_portal_state::fn_thread_work()
             }
             else {
                 LOG_DEBUG("Client portal: transfer failed");
-            };
+            }
         }
     }
 
