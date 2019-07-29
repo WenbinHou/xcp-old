@@ -19,6 +19,7 @@ void xcp::client_instance::fn_portal()
         bool is_from_server_to_client { };
         std::string client_file_name;
         std::string server_path;
+        uint64_t transfer_block_size;
         std::optional<basic_file_info> file_info;
     } transfer_request;
     {
@@ -34,6 +35,7 @@ void xcp::client_instance::fn_portal()
         transfer_request.is_from_server_to_client = msg.is_from_server_to_client;
         transfer_request.client_file_name = std::move(msg.client_file_name);
         transfer_request.server_path = std::move(msg.server_path);
+        transfer_request.transfer_block_size = std::move(msg.transfer_block_size);
         transfer_request.file_info = std::move(msg.file_info);
     }
 
@@ -55,7 +57,7 @@ void xcp::client_instance::fn_portal()
             try {
                 if (transfer_request.is_from_server_to_client) {  // from server to client
                     ASSERT(!transfer_request.file_info.has_value());
-                    this->transfer = std::make_shared<transfer_source>(transfer_request.server_path);
+                    this->transfer = std::make_shared<transfer_source>(transfer_request.server_path, transfer_request.transfer_block_size);
                     msg.file_info = this->transfer->get_file_info();
                 }
                 else {  // from client to server

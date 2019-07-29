@@ -48,14 +48,18 @@ namespace xcp
 
         ASSERT(this->_file_info.has_value());
 
+        ASSERT(_init_transfer_block_size > 0);
+        ASSERT(_init_transfer_block_size <= program_options_defaults::MAX_TRANSFER_BLOCK_SIZE);
+        uint32_t curr_channel_block_size = (uint32_t)_init_transfer_block_size;
+
         while (true) {
-            const uint64_t curr = _curr_offset.fetch_add((uint64_t)BLOCK_SIZE);
+            const uint64_t curr = _curr_offset.fetch_add((uint64_t)curr_channel_block_size);
             if (curr >= this->_file_info->file_size) {
                 break;
             }
 
-            uint32_t block_size = BLOCK_SIZE;
-            if (curr + BLOCK_SIZE >= this->_file_info->file_size) {
+            uint32_t block_size = curr_channel_block_size;
+            if (curr + curr_channel_block_size >= this->_file_info->file_size) {
                 block_size = (uint32_t)(this->_file_info->file_size - curr);
             }
 
@@ -63,6 +67,11 @@ namespace xcp
             *(uint32_t*)&header[0] = htonl((uint32_t)(curr >> 32));  // offset_high
             *(uint32_t*)&header[4] = htonl((uint32_t)(curr & 0xFFFFFFFF));  // offset_low
             *(uint32_t*)&header[8] = htonl(block_size);  // block size
+
+            std::chrono::steady_clock::time_point start_time { };
+            if (!_is_transfer_block_size_fixed) {
+                start_time = std::chrono::steady_clock::now();
+            }
 
 #if PLATFORM_WINDOWS
             // Send header and body
@@ -143,6 +152,47 @@ namespace xcp
 #else
 #   error "Unknown platform"
 #endif
+
+            std::chrono::steady_clock::time_point end_time { };
+            if (!_is_transfer_block_size_fixed) {
+                end_time = std::chrono::steady_clock::now();
+            }
+
+            // Adjust curr_channel_block_size according to current channel bandwidth
+            // We would like to to a sendfile or TransmitFile at every 1 sec
+            if (!_is_transfer_block_size_fixed) {
+                uint64_t tmp_block_size = curr_channel_block_size;  // use uint64_t to prevent overflow
+
+                const int64_t elapsed_usec = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+                if (elapsed_usec <= 0) {
+                    LOG_WARN("end_time <= start_time: What happened?");
+                    tmp_block_size *= 2; // Just double block size
+                }
+                else if (elapsed_usec <= 1000 * 1000) {  // elapsed time <= 1 sec
+                    tmp_block_size = (uint64_t)((double)(tmp_block_size * 1000 * 1000) / (double)elapsed_usec);
+                }
+                else {  // elapsed time > 1 sec
+                    // Use a decay rate: decay = 0.8
+                    static constexpr const double DECAY = 0.8;
+                    double tmp = (double)(tmp_block_size * 1000 * 1000) / (double)elapsed_usec;
+                    tmp_block_size = (uint64_t)(((double)tmp_block_size) * DECAY + tmp * (1 - DECAY));
+                }
+
+                // Up-align block size to 64K
+                constexpr const uint32_t ALIGN_SHIFT = 16;  // 64K = 1 << 16
+                tmp_block_size = ((tmp_block_size + (1U << ALIGN_SHIFT) - 1) >> ALIGN_SHIFT) << ALIGN_SHIFT;
+
+                // Make sure don't excceed MAX_TRANSFER_BLOCK_SIZE
+                if (tmp_block_size > program_options_defaults::MAX_TRANSFER_BLOCK_SIZE) {
+                    tmp_block_size = program_options_defaults::MAX_TRANSFER_BLOCK_SIZE;
+                }
+                else if (tmp_block_size == 0) {
+                    tmp_block_size = (1U << ALIGN_SHIFT);
+                }
+                curr_channel_block_size = (uint32_t)tmp_block_size;
+
+                LOG_TRACE("Channel: elapsed: {} usec, new channel_block_size: {}", elapsed_usec, curr_channel_block_size);
+            }
 
             LOG_TRACE("Sent file block: offset = {}, block_size = {}", curr, block_size);
         }
@@ -250,8 +300,13 @@ namespace xcp
 #endif
     }
 
-    transfer_source::transfer_source(const std::string& src_path)
+    transfer_source::transfer_source(const std::string& src_path, const uint64_t transfer_block_size)
+        : _is_transfer_block_size_fixed((transfer_block_size != 0)),
+          _init_transfer_block_size((transfer_block_size != 0) ? (uint32_t)transfer_block_size : TRANSFER_BLOCK_SIZE_INIT)
     {
+        ASSERT(_init_transfer_block_size > 0);
+        ASSERT(transfer_block_size <= (uint64_t)program_options_defaults::MAX_TRANSFER_BLOCK_SIZE);
+
         infra::sweeper error_cleanup = [&]() {
             this->dispose();
         };

@@ -50,7 +50,7 @@ namespace xcp
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(transfer_source)
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_source)
-        explicit transfer_source(const std::string& src_path);  // throws transfer_error
+        explicit transfer_source(const std::string& src_path, uint64_t transfer_block_size);  // throws transfer_error
 
         bool invoke_portal(infra::socket_t sock) override;
         bool invoke_channel(infra::socket_t sock) override;
@@ -62,7 +62,11 @@ namespace xcp
         void prepare_transfer_regular_file(const stdfs::path& file_path);
 
     private:
-        static constexpr const uint32_t BLOCK_SIZE = 1024 * 1024 * 1;  // block: 1 MB
+        static constexpr const uint32_t TRANSFER_BLOCK_SIZE_INIT = 1024 * 1024 * 1;  // block: 1 MB
+        static_assert(TRANSFER_BLOCK_SIZE_INIT <= program_options_defaults::MAX_TRANSFER_BLOCK_SIZE);
+
+        const bool _is_transfer_block_size_fixed;
+        const uint32_t _init_transfer_block_size;
 
         std::atomic_uint64_t _curr_offset = 0;
 #if PLATFORM_WINDOWS

@@ -105,7 +105,8 @@ bool xcp::client_portal_state::init()
                 program_options->arg_to_path.path);
         }
         else {  // from client to server
-            this->transfer = std::make_shared<transfer_source>(program_options->arg_from_path.path);
+            ASSERT(program_options->arg_transfer_block_size.has_value());
+            this->transfer = std::make_shared<transfer_source>(program_options->arg_from_path.path, program_options->arg_transfer_block_size.value());
         }
     }
     catch(const transfer_error& ex) {
@@ -222,6 +223,8 @@ void xcp::client_portal_state::fn_thread_work()
     {
         message_client_hello_request msg;
         msg.is_from_server_to_client = program_options->is_from_server_to_client;
+        ASSERT(program_options->arg_transfer_block_size.has_value());
+        msg.transfer_block_size = program_options->arg_transfer_block_size.value();
         if (msg.is_from_server_to_client) {
             msg.server_path = program_options->arg_from_path.path;
             msg.client_file_name = stdfs::path(program_options->arg_to_path.path).filename().string();

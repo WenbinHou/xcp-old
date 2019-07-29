@@ -58,6 +58,8 @@ namespace xcp
         static constexpr const char SERVER_CHANNEL_HOST[] = "[::]";
         static constexpr const uint16_t SERVER_CHANNEL_PORT = 0;
         static constexpr const size_t SERVER_CHANNEL_REPEATS = 12;
+
+        static constexpr const uint32_t MAX_TRANSFER_BLOCK_SIZE = 1024 * 1024 * 1024;  // 1 GB
     };
 
     struct base_program_options
@@ -78,6 +80,7 @@ namespace xcp
         std::optional<uint16_t> arg_port { };
         host_path arg_from_path;
         host_path arg_to_path;
+        std::optional<uint64_t> arg_transfer_block_size { };
 
         bool is_from_server_to_client;
         infra::tcp_endpoint server_portal;

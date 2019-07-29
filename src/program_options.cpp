@@ -151,6 +151,13 @@ void xcp::xcp_program_options::add_options(CLI::App& app)
         "Copy to this path");
     opt_to->type_name("<to>");
     opt_to->required();
+
+    CLI::Option* opt_block = app.add_option(
+        "-B,--block",
+        this->arg_transfer_block_size,
+        "Transfer block size");
+    opt_block->type_name("<size>");
+    opt_block->transform(CLI::AsSizeValue(false));
 }
 
 bool xcp::xcp_program_options::post_process()
@@ -221,6 +228,30 @@ bool xcp::xcp_program_options::post_process()
         for (const infra::tcp_sockaddr& addr : server_portal.resolved_sockaddrs) {
             LOG_DEBUG("  Candidate server portal endpoint: {}", addr.to_string());
         }
+    }
+
+    //----------------------------------------------------------------
+    // arg_transfer_block_size
+    //----------------------------------------------------------------
+    if (arg_transfer_block_size.has_value()) {
+        if (arg_transfer_block_size.value() > program_options_defaults::MAX_TRANSFER_BLOCK_SIZE) {
+            LOG_WARN("Transfer block size is too large: {}. Set to MAX_TRANSFER_BLOCK_SIZE: {}",
+                     arg_transfer_block_size.value(), program_options_defaults::MAX_TRANSFER_BLOCK_SIZE);
+            arg_transfer_block_size = program_options_defaults::MAX_TRANSFER_BLOCK_SIZE;
+        }
+    }
+    else {
+        arg_transfer_block_size = 0;
+    }
+
+    if (arg_transfer_block_size.value() == 0) {
+        LOG_TRACE("Transfer block size: automatic tuning");
+    }
+    else if (arg_transfer_block_size.value() < 1024 * 64) {
+        LOG_WARN("Transfer block size {} is too small. You may encounter bad performance!", arg_transfer_block_size.value());
+    }
+    else {
+        LOG_TRACE("Transfer block size: {}", arg_transfer_block_size.value());
     }
 
     return true;

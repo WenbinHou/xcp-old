@@ -35,10 +35,11 @@ namespace xcp
         bool is_from_server_to_client;
         std::string client_file_name;
         std::string server_path;
+        std::uint64_t transfer_block_size;
 
         std::optional<basic_file_info> file_info;  // only if from client to server
 
-        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, client_file_name, server_path, file_info)
+        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, client_file_name, server_path, transfer_block_size, file_info)
     };
 
     struct message_server_hello_response : message_base<message_type::SERVER_HELLO_RESPONSE>
