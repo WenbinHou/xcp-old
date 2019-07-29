@@ -14,8 +14,7 @@ void infra::tcp_sockaddr::set_port(const uint16_t port_in_host_endian) noexcept
         addr_ipv6.sin6_port = htons(port_in_host_endian);
     }
     else {
-        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
-        std::abort();
+        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
     }
 }
 
@@ -28,8 +27,7 @@ uint16_t infra::tcp_sockaddr::port() const noexcept
         return ntohs(addr_ipv6.sin6_port);
     }
     else {
-        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
-        std::abort();
+        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
     }
 }
 
@@ -42,8 +40,7 @@ socklen_t infra::tcp_sockaddr::socklen() const noexcept
         return sizeof(addr_ipv6);
     }
     else {
-        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
-        std::abort();
+        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
     }
 }
 
@@ -72,8 +69,7 @@ std::string infra::tcp_sockaddr::to_string() const
         result += std::to_string(ntohs(addr_ipv6.sin6_port));
     }
     else {
-        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
-        std::abort();
+        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
     }
 
     return result;
@@ -88,8 +84,7 @@ bool infra::tcp_sockaddr::is_addr_any() const noexcept
         return memcmp(&addr_ipv6.sin6_addr, &in6addr_any, sizeof(struct in6_addr)) == 0;
     }
     else {
-        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
-        std::abort();
+        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
     }
 }
 

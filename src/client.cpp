@@ -43,8 +43,7 @@ bool xcp::client_channel_state::init()
             this->fn_thread_work();
         }
         catch(const std::exception& ex) {
-            LOG_ERROR("fn_thread_work() exception: {}", ex.what());
-            std::abort();
+            PANIC_TERMINATE("fn_thread_work() exception: {}", ex.what());
         }
     });
 
@@ -159,8 +158,7 @@ bool xcp::client_portal_state::init()
             this->fn_thread_work();
         }
         catch(const std::exception& ex) {
-            LOG_ERROR("fn_thread_work() exception: {}", ex.what());
-            std::abort();
+            PANIC_TERMINATE("fn_thread_work() exception: {}", ex.what());
         }
     });
 

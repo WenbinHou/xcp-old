@@ -21,8 +21,7 @@ namespace xcp
             }
         }
         catch(const std::exception& ex) {
-            LOG_ERROR("Serialization exception: {}", ex.what());
-            std::abort();
+            PANIC_TERMINATE("Serialization exception: {}", ex.what());
         }
 
         const uint32_t binary_size = (uint32_t)binary.size();
@@ -94,8 +93,7 @@ namespace xcp
             ar(msg);
         }
         catch(const std::exception& ex) {
-            LOG_ERROR("Deserialization exception: {}", ex.what());
-            std::abort();
+            PANIC_TERMINATE("Deserialization exception: {}", ex.what());
         }
 
         return true;

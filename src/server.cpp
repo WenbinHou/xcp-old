@@ -285,8 +285,7 @@ bool xcp::server_channel_state::init()
             this->fn_thread_accept();
         }
         catch(const std::exception& ex) {
-            LOG_ERROR("fn_thread_listener() exception: {}", ex.what());
-            std::abort();
+            PANIC_TERMINATE("fn_thread_listener() exception: {}", ex.what());
         }
     });
 
@@ -482,8 +481,7 @@ bool xcp::server_portal_state::init()
             this->fn_thread_accept();
         }
         catch(const std::exception& ex) {
-            LOG_ERROR("fn_thread_listener() exception: {}", ex.what());
-            std::abort();
+            PANIC_TERMINATE("fn_thread_listener() exception: {}", ex.what());
         }
     });
 
@@ -553,7 +551,7 @@ void xcp::server_portal_state::fn_thread_accept()
             }
             catch(const std::exception& ex) {
                 LOG_ERROR("fn_task_accepted_portal() exception: {}", ex.what());
-                // Don't std::abort()!
+                // Don't PANIC_TERMINATE
             }
         });
     }
