@@ -108,6 +108,9 @@ namespace infra
         [[nodiscard]]
         std::string to_string() const;
 
+        [[nodiscard]]
+        bool is_addr_any() const noexcept;
+
         XCP_DEFAULT_SERIALIZATION(cereal::binary_data(&addr, sizeof(sockaddr_storage)))
     };
 

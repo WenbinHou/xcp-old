@@ -264,7 +264,6 @@ void xcp::client_portal_state::fn_thread_work()
         // Get total_channel_repeats_count
         size_t total_channel_repeats_count = 0;
         for (const auto& tuple : server_channels) {
-            //const infra::tcp_sockaddr& addr = std::get<0>(tuple);
             const size_t repeats = std::get<1>(tuple);
             total_channel_repeats_count += repeats;
         }
@@ -293,8 +292,14 @@ void xcp::client_portal_state::fn_thread_work()
             const infra::tcp_sockaddr& addr = std::get<0>(tuple);
             const size_t repeats = std::get<1>(tuple);
 
-            infra::tcp_sockaddr chan_addr = this->connected_remote_endpoint;
-            chan_addr.set_port(addr.port());  // don't use IP from 'addr'!
+            infra::tcp_sockaddr chan_addr { };
+            if (addr.is_addr_any()) {
+                chan_addr = this->connected_remote_endpoint;  // don't use IP from 'addr', as it is "any"
+                chan_addr.set_port(addr.port());
+            }
+            else {
+                chan_addr = addr;  // use IP and port from 'addr'
+            }
             LOG_DEBUG("Client portal: server channel {} (repeats: {})", chan_addr.to_string(), repeats);
 
             size_t cnt = 0;

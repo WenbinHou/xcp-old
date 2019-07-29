@@ -79,6 +79,20 @@ std::string infra::tcp_sockaddr::to_string() const
     return result;
 }
 
+bool infra::tcp_sockaddr::is_addr_any() const noexcept
+{
+    if (family() == AF_INET) {
+        return addr_ipv4.sin_addr.s_addr == INADDR_ANY;
+    }
+    else if (family() == AF_INET6) {
+        return memcmp(&addr_ipv6.sin6_addr, &in6addr_any, sizeof(struct in6_addr)) == 0;
+    }
+    else {
+        LOG_ERROR("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        std::abort();
+    }
+}
+
 
 
 //==============================================================================
