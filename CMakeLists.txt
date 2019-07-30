@@ -52,6 +52,12 @@ option(XCP_ENABLE_UNITTESTS
     "Enable xcp unit-tests"
     ON)
 
+# Option: XCP_BUILD_STATIC_EXECUTABLE
+# Do we build static executable?
+option(XCP_BUILD_STATIC_EXECUTABLE
+    "Build static executable (as least as static as possible)"
+    ON)
+
 
 
 #===============================================================================

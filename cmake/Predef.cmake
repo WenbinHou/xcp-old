@@ -140,9 +140,11 @@ elseif (COMPILER_CLANG)
 
 elseif (COMPILER_MSVC OR COMPILER_CLANGCL)
     macro(_fix_cl_options Var)
-        # Use /MT, /MTd instead of /MD, /MDd
-        string (REGEX REPLACE "( |\t|^)(/MD)( |\t|$)" "\\1/MT\\3" ${Var} "${${Var}}")
-        string (REGEX REPLACE "( |\t|^)(/MDd)( |\t|$)" "\\1/MTd\\3" ${Var} "${${Var}}")
+        # Use /MT, /MTd instead of /MD, /MDd (if static build)
+        if (XCP_BUILD_STATIC_EXECUTABLE)
+            string (REGEX REPLACE "( |\t|^)(/MD)( |\t|$)" "\\1/MT\\3" ${Var} "${${Var}}")
+            string (REGEX REPLACE "( |\t|^)(/MDd)( |\t|$)" "\\1/MTd\\3" ${Var} "${${Var}}")
+        endif()
 
         # Remove default warning level
         string (REGEX REPLACE "( |\t|^)/W[0-4]( |\t|$)" "\\1\\2" ${Var} "${${Var}}")
@@ -168,13 +170,37 @@ endif()
 
 
 #
+# Static linking C++ library if XCP_BUILD_STATIC_EXECUTABLE
+# NOTE: glibc can't be static linked
+#
+if (XCP_BUILD_STATIC_EXECUTABLE)
+    if (COMPILER_GNU)
+        #add_link_options("-static")  # this won't work: glibc can't be statically linked
+        add_link_options("-static-libgcc")
+        add_link_options("-static-libstdc++")
+    elseif (COMPILER_CLANG)
+        #add_link_options("-static")  # this won't work: glibc can't be statically linked
+        if (XCP_USE_LLVM_LIBCXX)
+            add_link_options("-static-compiler-rt")
+            add_link_options("-static-libc++")
+        else()
+            add_link_options("-static-libgcc")
+            add_link_options("-static-libstdc++")
+        endif()
+    elseif (COMPILER_MSVC OR COMPILER_CLANGCL)
+        # Don't need to do anything
+    else()
+        message(FATAL_ERROR "[xcp] Unknown compiler")
+    endif()
+endif()
+
+
+#
 # Make linking as static as possible in MinGW
 #
 if (MINGW)
     if (COMPILER_GNU)
         add_link_options("-static")
-        #add_link_options("-static-libgcc")     # not necessary
-        #add_link_options("-static-libstdc++")  # not necessary
     elseif (COMPILER_CLANG)
         add_link_options("-static")
     else()
