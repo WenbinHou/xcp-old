@@ -10,6 +10,7 @@
 #include "disposable.h"
 
 #include "semaphore.h"
+#include "manual_reset_event.h"
 #include "sighandle.h"
 
 #include "network.h"
