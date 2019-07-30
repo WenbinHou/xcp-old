@@ -323,24 +323,26 @@ bool xcp::xcpd_program_options::post_process()
     //----------------------------------------------------------------
     // arg_channels
     //----------------------------------------------------------------
+    total_channel_repeats_count = 0;
     if (arg_channels.empty()) {
-        infra::tcp_endpoint_repeatable tmp;
-        tmp.host = program_options_defaults::SERVER_CHANNEL_HOST;
-        tmp.port = program_options_defaults::SERVER_CHANNEL_PORT;
-        tmp.repeats = program_options_defaults::SERVER_CHANNEL_REPEATS;
+        // Reuse portal as channel
+        // Default arg_portal->repeats if not specified by user
+        if (!arg_portal->repeats.has_value()) {
+            arg_portal->repeats = program_options_defaults::SERVER_CHANNEL_REPEATS;
+        }
+        total_channel_repeats_count += arg_portal->repeats.value();
 
-        LOG_INFO("Server channels are not specified, use default channel: {}", tmp.to_string());
-        arg_channels.emplace_back(std::move(tmp));
+        LOG_INFO("Server channels are not specified, reuse portal as channel: {}", arg_portal->to_string());
     }
 
-    total_channel_repeats_count = 0;
-    for (infra::tcp_endpoint_repeatable& ep : arg_channels) {
+    for (infra::tcp_endpoint& ep : arg_channels) {
         if (!ep.port.has_value()) {
             ep.port = static_cast<uint16_t>(0);
         }
         if (!ep.repeats.has_value()) {
             ep.repeats = static_cast<size_t>(1);
         }
+        ASSERT(ep.repeats.value() > 0);
         LOG_INFO("Server channel: {}", ep.to_string());
 
         if (!ep.resolve()) {

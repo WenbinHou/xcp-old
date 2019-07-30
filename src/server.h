@@ -67,7 +67,7 @@ namespace xcp
         XCP_DISABLE_COPY_CONSTRUCTOR(server_channel_state)
         XCP_DISABLE_MOVE_CONSTRUCTOR(server_channel_state)
 
-        explicit server_channel_state(server_portal_state& portal, infra::tcp_endpoint_repeatable ep)
+        explicit server_channel_state(server_portal_state& portal, infra::tcp_endpoint ep)
             : portal(portal),
               required_endpoint(std::move(ep))
         { }
@@ -82,7 +82,7 @@ namespace xcp
     public:
         server_portal_state& portal;
         std::thread thread_accept { };
-        const infra::tcp_endpoint_repeatable required_endpoint;
+        const infra::tcp_endpoint required_endpoint;
         infra::tcp_sockaddr bound_local_endpoint { };
         std::shared_ptr<infra::os_socket_t> sock { nullptr };
     };
@@ -91,6 +91,8 @@ namespace xcp
     struct server_portal_state : infra::disposable
     {
     public:
+        friend struct server_channel_state;
+
         XCP_DISABLE_COPY_CONSTRUCTOR(server_portal_state)
         XCP_DISABLE_MOVE_CONSTRUCTOR(server_portal_state)
 
@@ -104,10 +106,12 @@ namespace xcp
 
     private:
         void fn_thread_accept();
-        void fn_task_accepted_portal(
+        void fn_thread_unified_accepted_socket(
             std::thread* thr,
             std::shared_ptr<infra::os_socket_t> accepted_sock,
-            const infra::tcp_sockaddr& peer_addr);
+            const infra::tcp_sockaddr& peer_addr,
+            bool allow_role_portal,
+            bool allow_role_channel);
 
     public:
         std::thread thread_accept { };

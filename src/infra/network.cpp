@@ -93,11 +93,10 @@ bool infra::tcp_sockaddr::is_addr_any() const noexcept
 
 
 //==============================================================================
-// struct basic_tcp_endpoint
+// struct tcp_endpoint
 //==============================================================================
 
-template<bool _WithRepeats>
-bool infra::basic_tcp_endpoint<_WithRepeats>::parse(const std::string& value)
+bool infra::tcp_endpoint::parse(const std::string& value)
 {
     // Valid format:
     //   <host>
@@ -163,10 +162,6 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::parse(const std::string& value)
                 repeats = { };
             }
             else {
-                if constexpr(!_WithRepeats) {
-                    //LOG_ERROR("Didn't expect @{} from {}", repeats_str, value);
-                    return false;
-                }
                 const int repeats_int = std::stoi(repeats_str);
                 if (repeats_int <= 0) {
                     //LOG_ERROR("Invalid @{} number from {}", repeats_str, value);
@@ -189,8 +184,7 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::parse(const std::string& value)
 
 }
 
-template <bool _WithRepeats>
-bool infra::basic_tcp_endpoint<_WithRepeats>::resolve()
+bool infra::tcp_endpoint::resolve()
 {
     std::vector<tcp_sockaddr> sockaddrs;
 
@@ -266,8 +260,7 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::resolve()
     return true;
 }
 
-template <bool _WithRepeats>
-std::string infra::basic_tcp_endpoint<_WithRepeats>::to_string() const
+std::string infra::tcp_endpoint::to_string() const
 {
     std::string result = host;
     if (port.has_value()) {
@@ -275,22 +268,13 @@ std::string infra::basic_tcp_endpoint<_WithRepeats>::to_string() const
         result += std::to_string(port.value());
     }
 
-    if constexpr(_WithRepeats) {
-        if (repeats.has_value()) {
-            result += "@";
-            result += std::to_string(repeats.value());
-        }
+    if (repeats.has_value()) {
+        result += "@";
+        result += std::to_string(repeats.value());
     }
 
     return result;
 }
-
-
-//
-// Explicit specialization of basic_tcp_endpoint
-//
-template struct infra::basic_tcp_endpoint<true>;
-template struct infra::basic_tcp_endpoint<false>;
 
 
 

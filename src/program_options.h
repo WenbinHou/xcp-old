@@ -11,12 +11,11 @@
 //
 namespace infra
 {
-    template<bool _WithRepeats>
-    std::istream& operator >>(std::istream& iss, infra::basic_tcp_endpoint<_WithRepeats>& ep)
+    inline std::istream& operator >>(std::istream& iss, infra::tcp_endpoint& ep)
     {
         std::string value;
         iss >> value;
-        ep = infra::basic_tcp_endpoint<_WithRepeats>();
+        ep = infra::tcp_endpoint();
         if (!ep.parse(value)) {
             throw CLI::ConversionError(value, "tcp_endpoint");
         }
@@ -55,8 +54,6 @@ namespace xcp
         static constexpr const char SERVER_PORTAL_HOST[] = "*";
         static constexpr const uint16_t SERVER_PORTAL_PORT = 62581;
 
-        static constexpr const char SERVER_CHANNEL_HOST[] = "*";
-        static constexpr const uint16_t SERVER_CHANNEL_PORT = 0;
         static constexpr const size_t SERVER_CHANNEL_REPEATS = 12;
 
         static constexpr const uint32_t MAX_TRANSFER_BLOCK_SIZE = 1024 * 1024 * 1024;  // 1 GB
@@ -95,7 +92,7 @@ namespace xcp
     {
     public:
         std::optional<infra::tcp_endpoint> arg_portal { };
-        std::vector<infra::tcp_endpoint_repeatable> arg_channels { };
+        std::vector<infra::tcp_endpoint> arg_channels { };
 
         size_t total_channel_repeats_count { 0 };
 

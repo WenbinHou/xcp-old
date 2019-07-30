@@ -8,12 +8,24 @@
 
 namespace xcp
 {
+    struct portal_protocol
+    {
+        static constexpr const uint32_t GREETING_MAGIC_1 = 0x31c1b3f6;
+        static constexpr const uint32_t GREETING_MAGIC_2 = 0xe5fd020e;
+
+        struct role
+        {
+            static constexpr const uint32_t ROLE_PORTAL = 0x8739e779;
+            static constexpr const uint32_t ROLE_CHANNEL = 0x7fbc389b;
+        };
+    };
+
     struct basic_file_info
     {
         uint64_t file_size;
         uint32_t posix_perm;
 
-        XCP_DEFAULT_SERIALIZATION(file_size, posix_perm);
+        XCP_DEFAULT_SERIALIZATION(file_size, posix_perm)
     };
 
     enum class message_type : std::uint32_t

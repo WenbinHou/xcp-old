@@ -79,7 +79,17 @@ void xcp::client_instance::fn_portal()
 
         if (msg.error_code == 0) {  // no error
             // Tell client: server channels
-            ASSERT(!server_portal.channels.empty());
+            if (server_portal.program_options->arg_portal->repeats.has_value()) {
+                // Reuse portal as channel
+                ASSERT(server_portal.program_options->arg_portal->repeats.value() > 0);
+                msg.server_channels.emplace_back(
+                    server_portal.bound_local_endpoint,
+                    server_portal.program_options->arg_portal->repeats.value());
+            }
+            else {
+                ASSERT(!server_portal.channels.empty());
+            }
+
             for (const std::shared_ptr<xcp::server_channel_state>& chan : server_portal.channels) {
                 msg.server_channels.emplace_back(chan->bound_local_endpoint, chan->required_endpoint.repeats.value());
             }
@@ -307,58 +317,19 @@ void xcp::server_channel_state::fn_thread_accept()
 
 
         // Create a separated thread to handle the channel
-        launch_thread([this, accepted_sock, peer_addr](std::thread* const thr) mutable {
-
-            infra::sweeper error_cleanup = [&]() {
-                accepted_sock->dispose();
-                accepted_sock.reset();
-
-                // Cleanup current thread (make it detached)
-                thr->detach();
-                delete thr;
-            };
-
-            // Receive identity
-            infra::identity_t identity;
-            {
-                if (!accepted_sock->recv(&identity, sizeof(infra::identity_t))) {
-                    LOG_ERROR("Server channel: receive identity from peer {} failed", peer_addr.to_string());
-                    return;
-                }
-
-                LOG_TRACE("Server channel: received identity from peer {}", peer_addr.to_string());
+        launch_thread([this, accepted_sock, peer_addr](std::thread* const thr) {
+            try {
+                this->portal.fn_thread_unified_accepted_socket(
+                    thr,
+                    accepted_sock,
+                    peer_addr,
+                    false,
+                    true);
             }
-
-            // Lookup identity and find the client
-            std::shared_ptr<client_instance> client;
-            {
-                std::unique_lock<std::shared_mutex> lock(portal.clients_mutex);
-                const auto it = portal.clients.find(identity);
-                if (it == portal.clients.end()) {
-                    LOG_ERROR("Server channel: Unknown identity from peer {}", peer_addr.to_string());
-                    return;
-                }
-                client = it->second;
+            catch(const std::exception& ex) {
+                LOG_ERROR("fn_thread_unified_accepted_socket() exception: {}", ex.what());
+                // Don't PANIC_TERMINATE
             }
-            //LOG_TRACE("Client found: {}", client->peer_endpoint.to_string());
-
-            // Add current thread to client channel_threads
-            {
-                std::unique_lock<std::shared_mutex> lock(client->channel_threads_mutex);
-                if (client->is_dispose_required()) {  // unlikely
-                    lock.unlock();
-
-                    LOG_ERROR("Server channel: client instance has required dispose()");
-                    return;
-                }
-                else {
-                    client->channel_threads.emplace_back(accepted_sock, std::shared_ptr<std::thread>(thr));
-                    LOG_TRACE("Server channel: establish one channel between client #{} (peer: {})", client->id, peer_addr.to_string());
-                }
-            }
-
-            error_cleanup.suppress_sweep();
-            client->fn_channel(accepted_sock);
         });
     }
 }
@@ -375,7 +346,7 @@ bool xcp::server_portal_state::init()
     // Initialize channels
     //
     {
-        for (infra::tcp_endpoint_repeatable& ep : program_options->arg_channels) {
+        for (infra::tcp_endpoint& ep : program_options->arg_channels) {
             std::shared_ptr<xcp::server_channel_state> chan = std::make_shared<xcp::server_channel_state>(*this, ep);
             if (!chan->init()) {
                 LOG_ERROR("Init server_channel_state failed for {}", ep.to_string());
@@ -500,23 +471,37 @@ void xcp::server_portal_state::fn_thread_accept()
         }
         LOG_DEBUG("Accepted from portal: {}", peer_addr.to_string());
 
-        launch_thread([this, accepted_sock, peer_addr](std::thread* thr) {
+        launch_thread([this, accepted_sock, peer_addr](std::thread* const thr) {
             try {
-                fn_task_accepted_portal(thr, accepted_sock, peer_addr);
+                fn_thread_unified_accepted_socket(
+                    thr,
+                    accepted_sock,
+                    peer_addr,
+                    true,
+                    (this->program_options->arg_portal->repeats.has_value()));
             }
             catch(const std::exception& ex) {
-                LOG_ERROR("fn_task_accepted_portal() exception: {}", ex.what());
+                LOG_ERROR("fn_thread_unified_accepted_socket() exception: {}", ex.what());
                 // Don't PANIC_TERMINATE
             }
         });
     }
 }
 
-void xcp::server_portal_state::fn_task_accepted_portal(
-    std::thread* const thr, 
+
+void xcp::server_portal_state::fn_thread_unified_accepted_socket(
+    std::thread* const thr,
     std::shared_ptr<infra::os_socket_t> accepted_sock,
-    const infra::tcp_sockaddr& peer_addr)
+    const infra::tcp_sockaddr& peer_addr,
+    const bool allow_role_portal,
+    const bool allow_role_channel)
 {
+    //
+    // NOTE:
+    //  This is the entry for **all** newly accepted sockets
+    //  No matter the listening socket is portal or channel
+    //
+
     infra::sweeper error_cleanup = [&]() {
         if (accepted_sock) {
             accepted_sock->dispose();
@@ -529,39 +514,134 @@ void xcp::server_portal_state::fn_task_accepted_portal(
     };
 
 
-    // Receive client identity from portal
+    //
+    // Receive GREETING_MAGIC_1, GREETING_MAGIC_2, ROLE from client
+    //
+    uint32_t role;
+    {
+        char buffer[12];
+        if (!accepted_sock->recv(buffer, sizeof(buffer))) {
+            LOG_ERROR("Server: receive greeting magics and role from peer {} failed", peer_addr.to_string());
+            return;
+        }
+
+        const uint32_t magic1 = ntohl(*(uint32_t*)&buffer[0]);
+        const uint32_t magic2 = ntohl(*(uint32_t*)&buffer[4]);
+        role = ntohl(*(uint32_t*)&buffer[8]);
+
+        if (magic1 != portal_protocol::GREETING_MAGIC_1 || magic2 != portal_protocol::GREETING_MAGIC_2) {
+            LOG_ERROR("Server: greeting magics from peer {} mismatched: "
+                      "expects (0x{:08x}, 0x{:08x}), but got (0x{:08x}, 0x{:08x})",
+                      peer_addr.to_string(), portal_protocol::GREETING_MAGIC_1, portal_protocol::GREETING_MAGIC_2, magic1, magic2);
+            return;
+        }
+
+        if (role == portal_protocol::role::ROLE_PORTAL) {
+            if (!allow_role_portal) {
+                LOG_ERROR("Server: this is a channel endpoint but not a portal! (peer {})", peer_addr.to_string());
+                return;
+            }
+        }
+        else if (role == portal_protocol::role::ROLE_CHANNEL) {
+            if (!allow_role_channel) {
+                LOG_ERROR("Server: client requests to use portal as channel, "
+                          "but server is not started in this way (peer: {})", peer_addr.to_string());
+                return;
+            }
+        }
+        else {
+            LOG_ERROR("Server: got unknown role from peer {}: 0x{:08x}", peer_addr.to_string(), role);
+            return;
+        }
+    }
+
+
+    //
+    // Receive client identity from this socket
+    //
     infra::identity_t identity;
     {
         if (!accepted_sock->recv(&identity, sizeof(identity))) {
-            LOG_ERROR("Server portal: receive identity from peer {} failed", peer_addr.to_string());
+            LOG_ERROR("Server: receive identity from peer {} failed", peer_addr.to_string());
             return;
         }
 
-        LOG_TRACE("Server portal: received identity from peer {}", peer_addr.to_string());
+        LOG_TRACE("Server: received identity from peer {}", peer_addr.to_string());
     }
 
-    // Create client instance and add to clients
-    std::shared_ptr<client_instance> client;
-    {
-        std::unique_lock<std::shared_mutex> lock(clients_mutex);
 
-        if (this->is_dispose_required()) {  // unlikely, must be guarded by clients_mutex (double check)
-            LOG_INFO("Dispose required. Abandon initializing client (peer {})", peer_addr.to_string());
-            return;
+    //
+    // Call functions, according to role
+    //
+    if (role == portal_protocol::role::ROLE_PORTAL) {
+        ASSERT(allow_role_portal);
+
+        {
+            // Create client instance and add to clients
+            std::shared_ptr<client_instance> client;
+            {
+                std::unique_lock<std::shared_mutex> lock(clients_mutex);
+
+                if (this->is_dispose_required()) {  // unlikely, must be guarded by clients_mutex (double check)
+                    LOG_INFO("Server portal: dispose required. Abandon initializing client (peer {})", peer_addr.to_string());
+                    return;
+                }
+
+                client = std::make_shared<client_instance>(
+                    *this,
+                    accepted_sock,
+                    std::shared_ptr<std::thread>(thr),
+                    peer_addr,
+                    identity,
+                    program_options->total_channel_repeats_count);
+                clients.insert(std::make_pair(identity, client));
+                LOG_TRACE("Server portal: create new client #{}", client->id);
+            }
+            // Run client's fn_portal
+            error_cleanup.suppress_sweep();
+            client->fn_portal();
         }
-
-        client = std::make_shared<client_instance>(
-            *this,
-            accepted_sock,
-            std::shared_ptr<std::thread>(thr),
-            peer_addr,
-            identity,
-            program_options->total_channel_repeats_count);
-        clients.insert(std::make_pair(identity, client));
-        LOG_TRACE("Server portal: create new client #{}", client->id);
+        return;
     }
 
-    // Run client's fn_portal
-    error_cleanup.suppress_sweep();
-    client->fn_portal();
+    if (role == portal_protocol::role::ROLE_CHANNEL) {
+        ASSERT(allow_role_channel);
+
+        {
+            // Lookup identity and find the client
+            std::shared_ptr<client_instance> client;
+            {
+                std::unique_lock<std::shared_mutex> lock(clients_mutex);
+                const auto it = clients.find(identity);
+                if (it == clients.end()) {
+                    LOG_ERROR("Server channel: unknown identity from peer {}", peer_addr.to_string());
+                    return;
+                }
+                client = it->second;
+                ASSERT(client != nullptr);
+            }
+            //LOG_TRACE("Client found: {}", client->peer_endpoint.to_string());
+
+            // Add current thread to client channel_threads
+            {
+                std::unique_lock<std::shared_mutex> lock(client->channel_threads_mutex);
+                if (client->is_dispose_required()) {  // unlikely
+                    lock.unlock();
+
+                    LOG_ERROR("Server channel: client instance has required dispose()");
+                    return;
+                }
+                else {
+                    client->channel_threads.emplace_back(accepted_sock, std::shared_ptr<std::thread>(thr));
+                    LOG_TRACE("Server channel: establish one channel between client #{} (peer: {})", client->id, peer_addr.to_string());
+                }
+            }
+
+            error_cleanup.suppress_sweep();
+            client->fn_channel(accepted_sock);
+        }
+        return;
+    }
+
+    PANIC_TERMINATE("Unknown role should have been rejected: 0x{:08x}", role);
 }

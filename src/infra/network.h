@@ -92,8 +92,7 @@ namespace infra
     };
 
 
-    template<bool _WithRepeats>
-    struct basic_tcp_endpoint
+    struct tcp_endpoint
     {
     public:
         std::string host { };
@@ -102,11 +101,11 @@ namespace infra
         std::vector<tcp_sockaddr> resolved_sockaddrs;
 
     public:
-        XCP_DEFAULT_COPY_CONSTRUCTOR(basic_tcp_endpoint)
+        XCP_DEFAULT_COPY_CONSTRUCTOR(tcp_endpoint)
 
-        XCP_DEFAULT_MOVE_ASSIGN(basic_tcp_endpoint)
+        XCP_DEFAULT_MOVE_ASSIGN(tcp_endpoint)
 
-        basic_tcp_endpoint(basic_tcp_endpoint&& other) noexcept
+        tcp_endpoint(tcp_endpoint&& other) noexcept
         {
             XCP_MOVE_FROM_OTHER(host);
             XCP_MOVE_FROM_OTHER(port);
@@ -114,7 +113,7 @@ namespace infra
             XCP_MOVE_FROM_OTHER(resolved_sockaddrs);
         }
 
-        basic_tcp_endpoint() = default;
+        tcp_endpoint() = default;
 
         bool parse(const std::string& value);
         bool resolve();
@@ -122,10 +121,6 @@ namespace infra
         [[nodiscard]]
         std::string to_string() const;
     };
-
-    typedef basic_tcp_endpoint</*_WithRepeats*/false> tcp_endpoint;
-    typedef basic_tcp_endpoint</*_WithRepeats*/true> tcp_endpoint_repeatable;
-
 
 
     //

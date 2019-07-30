@@ -63,11 +63,33 @@ void xcp::client_channel_state::fn_thread_work()
     }
 
     //
-    // Send identity
+    // Send greeting magic, role and identity
     //
     {
-        if (!sock->send<infra::identity_t>(&portal.client_identity)) {
-            LOG_ERROR("Channel {}: os_socket_t send() identity to peer failed", server_channel_sockaddr.to_string());
+        infra::socket_io_vec vec[4];
+
+        // GREETING_MAGIC_1
+        const uint32_t magic1_be = htonl(portal_protocol::GREETING_MAGIC_1);
+        vec[0].ptr = &magic1_be;
+        vec[0].len = sizeof(magic1_be);
+
+        // GREETING_MAGIC_2
+        const uint32_t magic2_be = htonl(portal_protocol::GREETING_MAGIC_2);
+        vec[1].ptr = &magic2_be;
+        vec[1].len = sizeof(magic2_be);
+
+        // ROLE
+        const uint32_t role_be = htonl(portal_protocol::role::ROLE_CHANNEL);
+        vec[2].ptr = &role_be;
+        vec[2].len = sizeof(role_be);
+
+        // identity
+        vec[3].ptr = &portal.client_identity;
+        vec[3].len = sizeof(portal.client_identity);
+
+        if (!sock->sendv(vec)) {
+            LOG_ERROR("Channel {}: os_socket_t sendv() greeting magic, role and identity to peer failed",
+                      server_channel_sockaddr.to_string());
             return;
         }
 
@@ -197,13 +219,34 @@ void xcp::client_portal_state::fn_thread_work()
 
     LOG_TRACE("Server portal connected: {}", connected_remote_endpoint.to_string());
 
-
     //
-    // Send my identity
+    // Send greeting magic, role and identity
     //
     {
-        if (!sock->send<infra::identity_t>(&client_identity)) {
-            LOG_ERROR("Client portal: send() identity to peer {} failed", connected_remote_endpoint.to_string());
+        infra::socket_io_vec vec[4];
+
+        // GREETING_MAGIC_1
+        const uint32_t magic1_be = htonl(portal_protocol::GREETING_MAGIC_1);
+        vec[0].ptr = &magic1_be;
+        vec[0].len = sizeof(magic1_be);
+
+        // GREETING_MAGIC_2
+        const uint32_t magic2_be = htonl(portal_protocol::GREETING_MAGIC_2);
+        vec[1].ptr = &magic2_be;
+        vec[1].len = sizeof(magic2_be);
+
+        // ROLE
+        const uint32_t role_be = htonl(portal_protocol::role::ROLE_PORTAL);
+        vec[2].ptr = &role_be;
+        vec[2].len = sizeof(role_be);
+
+        // identity
+        vec[3].ptr = &client_identity;
+        vec[3].len = sizeof(client_identity);
+
+        if (!sock->sendv(vec)) {
+            LOG_ERROR("Client portal: sendv() greeting magic, role and identity to peer {} failed",
+                      connected_remote_endpoint.to_string());
             return;
         }
 
