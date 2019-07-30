@@ -41,42 +41,6 @@ namespace infra
     }
 
 
-    //
-    // OS-specific "socket" type
-    //
-#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
-    typedef SOCKET socket_t;
-    static constexpr const SOCKET INVALID_SOCKET_VALUE = INVALID_SOCKET;
-
-    inline int close_socket(SOCKET sock) noexcept {
-        shutdown(sock, SD_BOTH);
-        return closesocket(sock);
-    }
-
-    inline std::string socket_error_description() {
-        const int wsagle = WSAGetLastError();
-        return std::string("WSAGetLastError = ") + std::to_string(wsagle) + " (" + str_getlasterror(wsagle) + ")";
-    }
-
-#elif PLATFORM_LINUX
-    typedef int socket_t;
-    static constexpr const int INVALID_SOCKET_VALUE = -1;
-
-    inline int close_socket(int sock) noexcept {
-        shutdown(sock, SHUT_RDWR);
-        return close(sock);
-    }
-
-    inline std::string socket_error_description() {
-        return std::string("errno = ") + std::to_string(errno) + " (" + strerror(errno) + ")";
-    }
-
-#else
-#   error "Unknown platform"
-#endif
-
-
-
     union tcp_sockaddr
     {
     public:
@@ -104,6 +68,9 @@ namespace infra
 
         [[nodiscard]]
         socklen_t socklen() const noexcept;
+
+        [[nodiscard]]
+        socklen_t max_socklen() const noexcept { return (socklen_t)sizeof(sockaddr_storage); }
 
         [[nodiscard]]
         std::string to_string() const;
@@ -148,6 +115,126 @@ namespace infra
 
     typedef basic_tcp_endpoint</*_WithRepeats*/false> tcp_endpoint;
     typedef basic_tcp_endpoint</*_WithRepeats*/true> tcp_endpoint_repeatable;
+
+
+
+    //
+    // OS-specific "socket" type
+    //
+    struct socket_io_vec
+    {
+        const void* ptr { };
+        size_t len { };
+
+        socket_io_vec() noexcept = default;
+        socket_io_vec(const void* const ptr, const size_t len) noexcept
+            : ptr(ptr), len(len)
+        { }
+    };
+
+    struct os_socket_t : disposable
+    {
+    private:
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+        typedef SOCKET socket_t;
+        typedef HANDLE file_handle_t;
+        static constexpr const SOCKET INVALID_SOCKET_VALUE = INVALID_SOCKET;
+
+#elif PLATFORM_LINUX
+        typedef int socket_t;
+        typedef int file_handle_t;
+        static constexpr const int INVALID_SOCKET_VALUE = -1;
+
+#else
+#   error "Unknown platform"
+#endif
+
+    public:
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+        static std::string error_description(const DWORD wsagle) {
+            return std::string("WSAGetLastError = ") + std::to_string(wsagle) + " (" + str_getlasterror(wsagle) + ")";
+        }
+        static std::string error_description() {
+            return error_description(WSAGetLastError());
+        }
+
+#elif PLATFORM_LINUX
+        static std::string error_description(const int err) {
+            return std::string("errno = ") + std::to_string(err) + " (" + strerror(err) + ")";
+        }
+        static std::string error_description() {
+            return error_description(errno);
+        }
+
+#else
+#   error "Unknown platform"
+#endif
+
+    public:
+        XCP_DISABLE_COPY_CONSTRUCTOR(os_socket_t)
+        XCP_DISABLE_MOVE_CONSTRUCTOR(os_socket_t)
+        os_socket_t() noexcept = default;
+        explicit os_socket_t(const socket_t sock) noexcept : _sock(sock) { }
+
+        void dispose_impl() noexcept override final { this->non_thread_safe_close(); }
+        virtual ~os_socket_t() override final { this->dispose(); /*no need to async_dispose(true)*/ }
+
+        bool init_tcp(uint16_t family);
+        bool bind(const tcp_sockaddr& addr, /*out,opt*/tcp_sockaddr* bound_addr);
+        bool listen(int backlog);
+        std::shared_ptr<os_socket_t> accept(/*out,opt*/ tcp_sockaddr* remote_addr);
+        bool connect(const tcp_sockaddr& addr, /*out,opt*/tcp_sockaddr* local_addr, /*out,opt*/tcp_sockaddr* remote_addr);
+        bool send_file(file_handle_t file_handle, uint64_t offset, uint32_t size, /*in,opt*/const socket_io_vec* header);
+        bool recv(void* ptr, uint32_t size);
+
+        bool send(const void* ptr, const uint32_t size) {
+            const socket_io_vec vec[1] { { ptr, size } };
+            return sendv(vec);
+        }
+
+        template<typename T>
+        bool send(const T* obj) {
+            ASSERT(obj != nullptr);
+            const socket_io_vec vec[1] { { (void*)obj, sizeof(*obj) } };
+            return sendv(vec);
+        }
+
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+        template<uint32_t _N>
+        bool sendv(const socket_io_vec (&vec)[_N]) {
+            WSABUF buffers[_N];
+            uint64_t expected_written = 0;
+            for (uint32_t i = 0; i < _N; ++i) {
+                buffers[i].buf = (char*)vec[i].ptr;
+                ASSERT(vec[i].len <= ULONG_MAX);
+                buffers[i].len = (ULONG)vec[i].len;
+                expected_written += vec[i].len;
+            }
+            return internal_sendv((void*)buffers, _N, expected_written);
+        }
+#elif PLATFORM_LINUX
+        template<uint32_t _N>
+        bool sendv(const socket_io_vec (&vec)[_N]) {
+            iovec buffers[_N];
+            uint64_t expected_written = 0;
+            for (uint32_t i = 0; i < _N; ++i) {
+                buffers[i].iov_base = (void*)vec[i].ptr;
+                buffers[i].iov_len = vec[i].len;
+                expected_written += vec[i].len;
+            }
+            return internal_sendv((void*)buffers, _N, expected_written);
+        }
+#else
+#   error "Unknown platform"
+#endif
+
+    private:
+        bool internal_sendv(const void* vec, uint32_t vec_count, uint64_t expected_written);
+        void non_thread_safe_close() noexcept;
+
+    private:
+        socket_t _sock = INVALID_SOCKET_VALUE;
+    };
 
 
 

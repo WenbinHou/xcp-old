@@ -77,8 +77,8 @@ namespace infra
         void wait_for_dispose_done() const
         {
             while (_status == STATUS_DISPOSING) {
-                std::this_thread::yield();
-                //std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                //std::this_thread::yield();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             ASSERT(_status == STATUS_DISPOSED);
         }

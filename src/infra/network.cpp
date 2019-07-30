@@ -1,4 +1,6 @@
 #include "infra.h"
+#include "network.h"
+
 
 
 //==============================================================================
@@ -264,3 +266,328 @@ std::string infra::basic_tcp_endpoint<_WithRepeats>::to_string() const
 //
 template struct infra::basic_tcp_endpoint<true>;
 template struct infra::basic_tcp_endpoint<false>;
+
+
+
+//==============================================================================
+// struct os_socket_t
+//==============================================================================
+
+void infra::os_socket_t::non_thread_safe_close() noexcept
+{
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+    if (_sock != INVALID_SOCKET_VALUE) {
+        (void)shutdown(_sock, SD_BOTH);
+        (void)closesocket(_sock);
+        _sock = INVALID_SOCKET_VALUE;
+    }
+#elif PLATFORM_LINUX
+    if (_sock != INVALID_SOCKET_VALUE) {
+        (void)shutdown(_sock, SHUT_RDWR);
+        (void)close(_sock);
+        _sock = INVALID_SOCKET_VALUE;
+    }
+#else
+#   error "Unknown platform"
+#endif
+}
+
+bool infra::os_socket_t::init_tcp(const uint16_t family)
+{
+#if defined(SOL_TCP)
+    static_assert(SOL_TCP == IPPROTO_TCP, "SOL_TCP should match IPPROTO_TCP");
+#endif
+    const int value_1 = 1;
+
+    ASSERT(_sock == INVALID_SOCKET_VALUE);
+
+    //
+    // Create socket
+    //
+    _sock = socket(family, SOCK_STREAM, IPPROTO_TCP);
+    if (_sock == INVALID_SOCKET_VALUE) {
+        LOG_ERROR("socket() failed. {}", error_description());
+        return false;
+    }
+
+    sweeper error_cleanup = [&]() {
+        this->non_thread_safe_close();
+    };
+
+
+    //
+    // Enable SO_REUSEADDR, SO_REUSEPORT
+    //
+    if (setsockopt(_sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&value_1, sizeof(value_1)) != 0) {
+        LOG_ERROR("setsockopt(SO_REUSEADDR) failed. {}", error_description());
+        return false;
+    }
+
+#if defined(SO_REUSEPORT)
+    if (setsockopt(_sock, SOL_SOCKET, SO_REUSEPORT, (const char*)&value_1, sizeof(value_1)) != 0) {
+        LOG_ERROR("setsockopt(SO_REUSEPORT) failed. {}", error_description());
+        return false;
+    }
+#endif
+
+    //
+    // Enable TCP_NODELAY
+    //
+    if (setsockopt(_sock, IPPROTO_TCP, TCP_NODELAY, (const char*)&value_1, sizeof(value_1)) != 0) {
+        LOG_ERROR("setsockopt(TCP_NODELAY) failed. {}", error_description());
+        return false;
+    }
+
+    //
+    // Enable KeepAlive
+    //
+    if (setsockopt(_sock, SOL_SOCKET, SO_KEEPALIVE, (const char*)&value_1, sizeof(value_1)) != 0) {
+        LOG_ERROR("setsockopt(SO_KEEPALIVE) failed. {}", error_description());
+        return false;
+    }
+    // TODO: maybe also set TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL?
+
+
+    error_cleanup.suppress_sweep();
+    return true;
+}
+
+bool infra::os_socket_t::bind(const infra::tcp_sockaddr& addr, /*out*/ infra::tcp_sockaddr* bound_addr)
+{
+    ASSERT(_sock != INVALID_SOCKET_VALUE);
+
+    // Bind to specified endpoint
+    if (::bind(_sock, addr.address(), addr.socklen()) != 0) {
+        LOG_ERROR("bind() to {} failed. {}", addr.to_string(), error_description());
+        return false;
+    }
+
+    // Get local endpoint
+    if (bound_addr) {
+        *bound_addr = addr;
+        socklen_t len = bound_addr->socklen();
+        if (getsockname(_sock, bound_addr->address(), &len) != 0) {
+            LOG_ERROR("bind() to {} succeeded but getsockname() failed. {}", addr.to_string(), error_description());
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool infra::os_socket_t::listen(const int backlog)
+{
+    ASSERT(_sock != INVALID_SOCKET_VALUE);
+
+    if (::listen(_sock, backlog) != 0) {
+        LOG_ERROR("listen(backlog={}) failed. {}", backlog, error_description());
+        return false;
+    }
+
+    return true;
+}
+
+std::shared_ptr<infra::os_socket_t> infra::os_socket_t::accept(/*out,opt*/ tcp_sockaddr* const remote_addr)
+{
+    // _sock might be INVALID_SOCKET_VALUE is already disposed
+    //ASSERT(_sock != INVALID_SOCKET_VALUE);
+
+    sockaddr* addr = nullptr;
+    socklen_t dummy_len;
+    socklen_t* plen = nullptr;
+    if (remote_addr) {
+        addr = remote_addr->address();
+        dummy_len = remote_addr->max_socklen();
+        plen = &dummy_len;
+    }
+
+    const socket_t new_sock = ::accept(_sock, addr, plen);
+    if (new_sock == INVALID_SOCKET_VALUE) {
+        LOG_ERROR("accept() failed. {}", error_description());
+        return nullptr;
+    }
+
+    return std::make_shared<os_socket_t>(new_sock);
+}
+
+bool infra::os_socket_t::connect(const tcp_sockaddr& addr, tcp_sockaddr* local_addr, tcp_sockaddr* remote_addr)
+{
+    ASSERT(_sock != INVALID_SOCKET_VALUE);
+
+    // Connect to specified endpoint
+    if (::connect(_sock, addr.address(), addr.socklen()) != 0) {
+        LOG_ERROR("connect() to {} failed. {}", addr.to_string(), error_description());
+        return false;
+    }
+
+    // Get local endpoint
+    if (local_addr) {
+        socklen_t len = local_addr->max_socklen();
+        if (getsockname(_sock, local_addr->address(), &len) != 0) {
+            LOG_ERROR("connect() to {} succeeded but getsockname() failed. {}", addr.to_string(), error_description());
+            return false;
+        }
+    }
+
+    // Get remote endpoint
+    if (remote_addr) {
+        socklen_t len = remote_addr->max_socklen();
+        if (getpeername(_sock, remote_addr->address(), &len) != 0) {
+            LOG_ERROR("connect() to {} succeeded but getpeername() failed. {}", addr.to_string(), error_description());
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool infra::os_socket_t::send_file(
+    const file_handle_t file_handle,
+    const uint64_t offset,
+    const uint32_t size,
+    const socket_io_vec* const header)
+{
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+    TRANSMIT_FILE_BUFFERS headtail;
+    headtail.Head = header ? (void*)header->ptr : nullptr;
+    headtail.HeadLength = header ? (DWORD)header->len : 0;
+    headtail.Tail = nullptr;
+    headtail.TailLength = 0;
+
+    OVERLAPPED overlapped { };
+    overlapped.Offset = (DWORD)(offset & 0xFFFFFFFF);
+    overlapped.OffsetHigh = (DWORD)(offset >> 32);
+    overlapped.hEvent = NULL;  // TODO: do we need a event anyway?
+
+    const BOOL success = TransmitFile(
+        _sock,
+        file_handle,
+        size,
+        0,
+        &overlapped,
+        &headtail,
+        TF_USE_KERNEL_APC);
+    if (success) {
+        // nothing to do
+    }
+    else {
+        const int wsagle = WSAGetLastError();
+        static_assert(WSA_IO_PENDING == ERROR_IO_PENDING);
+        if (wsagle == WSA_IO_PENDING) {
+            DWORD written = 0;
+            if (!GetOverlappedResult((HANDLE)_sock, &overlapped, &written, TRUE)) {
+                LOG_ERROR("GetOverlappedResult() failed. GetLastError = {} ({})", GetLastError(), infra::str_getlasterror(GetLastError()));
+                return false;
+            }
+
+            const uint32_t expected_written = size + (uint32_t)header->len;
+            if (written != expected_written) {
+                LOG_ERROR("TransmitFile() overlapped result error: expected written {} bytes, actually written {} bytes",
+                          expected_written, written);
+                return false;
+            }
+        }
+        else {
+            LOG_ERROR("TransmitFile() failed. {}", wsagle, error_description());
+            return false;
+        }
+    }
+
+
+#elif PLATFORM_LINUX
+    // Send header
+    if (header) {
+        const ssize_t cnt = ::send(_sock, header->ptr, header->len, MSG_MORE);
+        if (cnt < 0 || (size_t)cnt != header->len) {
+            LOG_ERROR("send() header expects {}, but returns {}. {}",
+                      header->len, cnt, error_description());
+            return false;
+        }
+    }
+
+    // Send body
+    {
+        off64_t mutable_off = offset;
+        const ssize_t cnt = sendfile64(_sock, file_handle, &mutable_off, size);
+        if (cnt < 0 || cnt != (ssize_t)size) {
+            LOG_ERROR("sendfile(offset={}, len={}) expects {}, but returns {}. {}",
+                      offset, size, size, cnt, error_description());
+            return false;
+        }
+    }
+
+#else
+#   error "Unknown platform"
+#endif
+
+    return true;
+}
+
+bool infra::os_socket_t::recv(void* const ptr, const uint32_t size)
+{
+    const int ret = (int)::recv(_sock, (char*)ptr, size, MSG_WAITALL);
+    if (ret < 0 || ret != (int)size) {
+        LOG_ERROR("recv() expects to return {}, but returns {}. {}",
+                  size, ret, error_description());
+        return false;
+    }
+
+    return true;
+}
+
+bool infra::os_socket_t::internal_sendv(const void* const vec, const uint32_t vec_count, const uint64_t expected_written)
+{
+    // _sock might be INVALID_SOCKET_VALUE is already disposed
+    //ASSERT(_sock != INVALID_SOCKET_VALUE);
+
+#if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+    OVERLAPPED overlapped { };
+
+    const int ret = WSASend(
+        _sock,
+        (LPWSABUF)vec,
+        vec_count,
+        NULL,
+        0,
+        &overlapped,
+        NULL);
+    if (ret == 0) {
+        // Immediately done, nothing to do
+    }
+    else {
+        const int wsagle = WSAGetLastError();
+        if (wsagle == WSA_IO_PENDING) {
+            DWORD sent = 0;
+            if (!GetOverlappedResult((HANDLE)_sock, &overlapped, &sent, TRUE)) {
+                LOG_ERROR("GetOverlappedResult() failed. GetLastError = {} ({})", GetLastError(), str_getlasterror(GetLastError()));
+                return false;
+            }
+
+            if (sent != expected_written) {
+                LOG_ERROR("WSASend() overlapped result error: expected to sent {} bytes, actually sent {} bytes",
+                          expected_written, sent);
+                return false;
+            }
+        }
+        else {
+            LOG_ERROR("WSASend({} parts, totally {} bytes) failed with {}. {}",
+                      vec_count, expected_written, ret, error_description(wsagle));
+            return false;
+        }
+    }
+
+
+#elif PLATFORM_LINUX
+    const ssize_t cnt = writev(_sock, (const iovec*)vec, vec_count);
+    if ((uint64_t)cnt != expected_written) {
+        LOG_ERROR("writev({} parts) expects to return {}, but returns {}. {}",
+                  vec_count, expected_written, cnt, error_description());
+        return false;
+    }
+
+#else
+#   error "Unknown platform"
+#endif
+
+    return true;
+}

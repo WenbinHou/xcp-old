@@ -17,7 +17,7 @@ namespace xcp
 
         client_instance(
             server_portal_state& server_portal,
-            const infra::socket_t accepted_portal_socket,
+            std::shared_ptr<infra::os_socket_t> accepted_portal_socket,
             std::shared_ptr<std::thread> portal_thread,
             const infra::tcp_sockaddr& peer_endpoint,
             const infra::identity_t& client_identity,
@@ -25,13 +25,13 @@ namespace xcp
             : server_portal(server_portal),
               peer_endpoint(peer_endpoint),
               client_identity(client_identity),
-              accepted_portal_socket(accepted_portal_socket),
+              accepted_portal_socket(std::move(accepted_portal_socket)),
               portal_thread(std::move(portal_thread)),
               total_channel_repeats_count(total_channel_repeats_count)
         { }
 
         void fn_portal();
-        void fn_channel(infra::socket_t accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint);
+        void fn_channel(std::shared_ptr<infra::os_socket_t> accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint);
         void dispose_impl() noexcept override final;
         ~client_instance() noexcept override final { this->async_dispose(true); }
 
@@ -41,10 +41,10 @@ namespace xcp
         infra::tcp_sockaddr peer_endpoint;
         const infra::identity_t client_identity;
 
-        infra::socket_t accepted_portal_socket;
+        std::shared_ptr<infra::os_socket_t> accepted_portal_socket;
         std::shared_ptr<std::thread> portal_thread;
 
-        std::vector<std::pair<infra::socket_t, std::shared_ptr<std::thread>>> channel_threads;
+        std::vector<std::pair<std::shared_ptr<infra::os_socket_t>, std::shared_ptr<std::thread>>> channel_threads;
         std::shared_mutex channel_threads_mutex;
 
         std::atomic_size_t connected_channel_repeats_count { 0 };
@@ -78,7 +78,7 @@ namespace xcp
         std::thread thread_accept { };
         const infra::tcp_endpoint_repeatable required_endpoint;
         infra::tcp_sockaddr bound_local_endpoint { };
-        infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
+        std::shared_ptr<infra::os_socket_t> sock { nullptr };
     };
 
 
@@ -98,15 +98,18 @@ namespace xcp
 
     private:
         void fn_thread_accept();
-        void fn_task_accepted_portal(std::thread* thr, infra::socket_t accepted_sock, const infra::tcp_sockaddr& peer_addr);
+        void fn_task_accepted_portal(
+            std::thread* thr,
+            std::shared_ptr<infra::os_socket_t> accepted_sock,
+            const infra::tcp_sockaddr& peer_addr);
 
     public:
         std::thread thread_accept { };
         std::shared_ptr<xcpd_program_options> program_options;
         infra::tcp_sockaddr bound_local_endpoint { };
-        infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
+        std::shared_ptr<infra::os_socket_t> sock { nullptr };
 
-        std::vector<std::shared_ptr<xcp::server_channel_state>> channels;
+        std::vector<std::shared_ptr<server_channel_state>> channels;
 
         std::unordered_map<infra::identity_t, std::shared_ptr<client_instance>> clients { };
         std::shared_mutex clients_mutex { };

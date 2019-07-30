@@ -5,7 +5,7 @@ namespace xcp
     //--------------------------------------------------------------------------
     // struct transfer_source
     //--------------------------------------------------------------------------
-    bool transfer_source::invoke_portal(infra::socket_t sock) /*override*/
+    bool transfer_source::invoke_portal(std::shared_ptr<infra::os_socket_t> sock) /*override*/
     {
         // Wait for message_transfer_destination_finished
         {
@@ -21,31 +21,12 @@ namespace xcp
             }
         }
 
-        LOG_TRACE("Transfer source portal done!");
+        LOG_TRACE("Transfer source portal done successfully!");
         return true;
     }
 
-    bool transfer_source::invoke_channel(infra::socket_t sock) /*override*/
+    bool transfer_source::invoke_channel(std::shared_ptr<infra::os_socket_t> sock) /*override*/
     {
-#if PLATFORM_WINDOWS
-        HANDLE hEvent = CreateEventW(NULL, /*bManualReset*/TRUE, FALSE, NULL);
-        if (hEvent == NULL) {
-            const DWORD gle = GetLastError();
-            LOG_ERROR("CreateEventW() failed. GetLastError = {} ({})", gle, infra::str_getlasterror(gle));
-            return false;
-        }
-
-        const infra::sweeper sweep_event = [&]() {
-            CloseHandle(hEvent);
-            hEvent = NULL;
-        };
-
-#elif PLATFORM_LINUX
-        // Nothing to do
-#else
-#   error "Unknown platform"
-#endif
-
         ASSERT(this->_file_info.has_value());
 
         ASSERT(_init_transfer_block_size > 0);
@@ -68,91 +49,24 @@ namespace xcp
             *(uint32_t*)&header[4] = htonl((uint32_t)(curr & 0xFFFFFFFF));  // offset_low
             *(uint32_t*)&header[8] = htonl(block_size);  // block size
 
+            // Get start time
             std::chrono::steady_clock::time_point start_time { };
             if (!_is_transfer_block_size_fixed) {
                 start_time = std::chrono::steady_clock::now();
             }
 
-#if PLATFORM_WINDOWS
-            // Send header and body
+            // Send the file
             {
-                TRANSMIT_FILE_BUFFERS headtail { };
-                headtail.Head = &header;
-                headtail.HeadLength = sizeof(header);
-                headtail.Tail = nullptr;
-                headtail.TailLength = 0;
-
-                OVERLAPPED overlapped { };
-                overlapped.Offset = (DWORD)(curr & 0xFFFFFFFF);
-                overlapped.OffsetHigh = (DWORD)(curr >> 32);
-                overlapped.hEvent = hEvent;
-
-                const BOOL success = TransmitFile(
-                    sock,
-                    this->_file_handle,
-                    (DWORD)block_size,
-                    0,
-                    &overlapped,
-                    &headtail,
-                    TF_USE_KERNEL_APC);
-                if (success) {
-                    // nothing to do
-                }
-                else {
-                    const int wsagle = WSAGetLastError();
-                    static_assert(WSA_IO_PENDING == ERROR_IO_PENDING);
-                    if (wsagle == WSA_IO_PENDING) {
-                        DWORD written = 0;
-                        if (!GetOverlappedResult((HANDLE)sock, &overlapped, &written, TRUE)) {
-                            LOG_ERROR("GetOverlappedResult() failed. GetLastError = {} ({})", GetLastError(), infra::str_getlasterror(GetLastError()));
-                            return false;
-                        }
-
-                        const uint32_t expected_written = block_size + sizeof(header);
-                        if (written != expected_written) {
-                            LOG_ERROR("TransmitFile() overlapped result error: expected written {} bytes, actually written {} bytes",
-                                      expected_written, written);
-                            return false;
-                        }
-                    }
-                    else {
-                        LOG_ERROR("TransmitFile() failed. WSAGetLastError = {} ({})", wsagle, infra::str_getlasterror(wsagle));
-                        return false;
-                    }
-                }
-
-                // Reset the event
-                if (!ResetEvent(hEvent)) {
-                    LOG_ERROR("ResetEvent() failed. GetLastError = {} ({})", GetLastError(), infra::str_getlasterror(GetLastError()));
+                infra::socket_io_vec vec;
+                vec.ptr = header;
+                vec.len = sizeof(header);
+                if (!sock->send_file(_file_handle, curr, block_size, &vec)) {
+                    LOG_ERROR("Channel: send_file(offset={}, block_size={}) failed", curr, block_size);
                     return false;
                 }
             }
 
-#elif PLATFORM_LINUX
-            // Send header
-            {
-                const ssize_t cnt = send(sock, header, sizeof(header), MSG_MORE);
-                if (cnt != (ssize_t)sizeof(header)) {
-                    LOG_ERROR("send() header expects {}, but returns {}. {}",
-                              sizeof(header), cnt, infra::socket_error_description());
-                    return false;
-                }
-            }
-
-            // Send body
-            {
-                off64_t offset = curr;
-                const ssize_t cnt = sendfile64(sock, this->_file_handle, &offset, block_size);
-                if (cnt != (ssize_t)block_size) {
-                    LOG_ERROR("sendfile(offset={}, len={}) expects {}, but returns {}. {}",
-                              offset, block_size, block_size, cnt, infra::socket_error_description());
-                    return false;
-                }
-            }
-#else
-#   error "Unknown platform"
-#endif
-
+            // Get end time
             std::chrono::steady_clock::time_point end_time { };
             if (!_is_transfer_block_size_fixed) {
                 end_time = std::chrono::steady_clock::now();
@@ -165,7 +79,7 @@ namespace xcp
 
                 const int64_t elapsed_usec = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
                 if (elapsed_usec <= 0) {
-                    LOG_WARN("end_time <= start_time: What happened?");
+                    LOG_WARN("Channel: end_time <= start_time: What happened?");
                     tmp_block_size *= 2; // Just double block size
                 }
                 else if (elapsed_usec <= 1000 * 1000) {  // elapsed time <= 1 sec
@@ -194,31 +108,24 @@ namespace xcp
                 LOG_TRACE("Channel: elapsed: {} usec, new channel_block_size: {}", elapsed_usec, curr_channel_block_size);
             }
 
-            LOG_TRACE("Sent file block: offset = {}, block_size = {}", curr, block_size);
+            LOG_TRACE("Channel: sent file block: offset = {}, block_size = {}", curr, block_size);
         }
 
 
         //
         // Send a tail (indicating current channel is done)
         //
-        char final_tail[12];  // the same size as header, indicating the transfer is done
-        *(uint32_t*)&final_tail[0] = htonl((uint32_t)0xFFFFFFFF);  // offset_high
-        *(uint32_t*)&final_tail[4] = htonl((uint32_t)0xFFFFFFFF);  // offset_low
-        *(uint32_t*)&final_tail[8] = htonl(0);  // block size
-
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
         {
-            const int cnt = (int)send(sock, final_tail, sizeof(final_tail), 0);
-            if (cnt != (int)sizeof(final_tail)) {
-                LOG_ERROR("send() expects {}, but returns {}. {}",
-                          sizeof(final_tail), cnt, infra::socket_error_description());
+            char final_tail[12];  // the same size as header, indicating the transfer is done
+            *(uint32_t*)&final_tail[0] = htonl((uint32_t)0xFFFFFFFF);  // offset_high
+            *(uint32_t*)&final_tail[4] = htonl((uint32_t)0xFFFFFFFF);  // offset_low
+            *(uint32_t*)&final_tail[8] = htonl(0);  // block size
+
+            if (!sock->send(final_tail, sizeof(final_tail))) {
+                LOG_ERROR("Channel: send() final tail failed");
                 return false;
             }
         }
-
-#else
-#   error "Unknown platform"
-#endif
         LOG_TRACE("Send done for current channel");
 
         return true;
@@ -351,7 +258,7 @@ namespace xcp
     //--------------------------------------------------------------------------
     // struct transfer_destination
     //--------------------------------------------------------------------------
-    bool transfer_destination::invoke_portal(infra::socket_t sock) /*override*/
+    bool transfer_destination::invoke_portal(std::shared_ptr<infra::os_socket_t> sock) /*override*/
     {
         // Wait for _sem_all_channels_finished
         this->_sem_all_channels_finished.wait();
@@ -372,7 +279,7 @@ namespace xcp
         return true;
     }
 
-    bool transfer_destination::invoke_channel(infra::socket_t sock) /*override*/
+    bool transfer_destination::invoke_channel(std::shared_ptr<infra::os_socket_t> sock) /*override*/
     {
         const infra::sweeper sweep = [&]() {
             const size_t finished = ++this->_finished_channel_repeats_count;
@@ -382,17 +289,14 @@ namespace xcp
         };
 
         while (true) {
-            char header[12];
 
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
             // Receive header
+            char header[12];
             uint64_t offset;
             uint32_t block_size;
             {
-                const int cnt = (int)recv(sock, header, sizeof(header), MSG_WAITALL);
-                if (cnt != (int)sizeof(header)) {
-                    LOG_ERROR("recv() header expects {}, but returns {}. {}",
-                              sizeof(header), cnt, infra::socket_error_description());
+                if (!sock->recv(header, sizeof(header))) {
+                    LOG_ERROR("Channel: recv() file block header failed");
                     return false;
                 }
 
@@ -413,19 +317,13 @@ namespace xcp
 
             // Receive body
             {
-                const int cnt = (int)recv(sock, (char*)_dst_file_mapped + offset, block_size, MSG_WAITALL);
-                if (cnt != (int)block_size) {
-                    LOG_ERROR("recv(offset={}, len={}) expects {}, but returns {}. {}",
-                              offset, block_size, block_size, cnt, infra::socket_error_description());
+                if (!sock->recv((char*)_dst_file_mapped + offset, block_size)) {
+                    LOG_ERROR("Channel: recv() file block at offset={}, block_size={} failed", offset, block_size);
                     return false;
                 }
             }
 
-#else
-#   error "Unknown platform"
-#endif
-
-            LOG_TRACE("Received file block: offset = {}, block_size = {}", offset, block_size);
+            LOG_TRACE("Channel: received file block: offset = {}, block_size = {}", offset, block_size);
         }
 
         return true;

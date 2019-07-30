@@ -120,9 +120,11 @@ void xcp::client_instance::fn_portal()
     }
 }
 
-void xcp::client_instance::fn_channel(infra::socket_t accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint)
+void xcp::client_instance::fn_channel(
+    std::shared_ptr<infra::os_socket_t> accepted_channel_socket,
+    infra::tcp_sockaddr channel_peer_endpoint)
 {
-    infra::sweeper exit_cleanup = [&]() {
+    infra::sweeper error_cleanup = [&]() {
         this->async_dispose(false);
     };
 
@@ -144,15 +146,15 @@ void xcp::client_instance::fn_channel(infra::socket_t accepted_channel_socket, i
         }
     }
 
-    exit_cleanup.suppress_sweep();
+    error_cleanup.suppress_sweep();
 }
 
 void xcp::client_instance::dispose_impl() noexcept /*override*/
 {
     // Wait for all portal thread to exit...
-    if (accepted_portal_socket != infra::INVALID_SOCKET_VALUE) {
-        infra::close_socket(accepted_portal_socket);
-        accepted_portal_socket = infra::INVALID_SOCKET_VALUE;
+    if (accepted_portal_socket) {
+        accepted_portal_socket->dispose();
+        accepted_portal_socket.reset();
     }
 
     // Post sem_all_channel_repeats_connected to allow portal_thread to go on (if necessary)
@@ -169,10 +171,10 @@ void xcp::client_instance::dispose_impl() noexcept /*override*/
     // Wait for all channel threads to exit...
     {
         std::unique_lock<std::shared_mutex> lock(channel_threads_mutex);
-        for (std::pair<infra::socket_t, std::shared_ptr<std::thread>>& pair : channel_threads) {
-            if (pair.first != infra::INVALID_SOCKET_VALUE) {
-                infra::close_socket(pair.first);
-                pair.first = infra::INVALID_SOCKET_VALUE;
+        for (std::pair<std::shared_ptr<infra::os_socket_t>, std::shared_ptr<std::thread>>& pair : channel_threads) {
+            if (pair.first) {
+                pair.first->dispose();
+                pair.first.reset();
             }
 
             if (pair.second) {
@@ -224,54 +226,34 @@ bool xcp::server_channel_state::init()
 
     bool bound = false;
     for (const infra::tcp_sockaddr& addr : required_endpoint.resolved_sockaddrs) {
-        sock = socket(addr.family(), SOCK_STREAM, IPPROTO_TCP);
-        if (sock == infra::INVALID_SOCKET_VALUE) {
-            LOG_WARN("Can't create socket for channel {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
-            continue;
-        }
+        sock = std::make_shared<infra::os_socket_t>();
 
-        // Enable SO_REUSEADDR, SO_REUSEPORT
-        constexpr int value_1 = 1;
-        if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&value_1, sizeof(value_1)) != 0) {
-            LOG_WARN("setsockopt(SO_REUSEADDR) failed. {} (skipped)", infra::socket_error_description());
-            continue;
-        }
-
-#if defined(SO_REUSEPORT)
-        if (setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, (const char*)&value_1, sizeof(value_1)) != 0) {
-            LOG_WARN("setsockopt(SO_REUSEPORT) failed. {} (skipped)", infra::socket_error_description());
-            continue;
-        }
-#endif
-
-        infra::sweeper sweep = [&]() {
-            infra::close_socket(sock);
-            sock = infra::INVALID_SOCKET_VALUE;
+        infra::sweeper error_cleanup = [&]() {
+            sock->dispose();
+            sock.reset();
         };
 
-        // Bind to specified endpoint
-        if (bind(sock, addr.address(), addr.socklen()) != 0) {
-            LOG_WARN("Can't bind to {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
+        // Init socket
+        if (!sock->init_tcp(addr.family())) {
+            LOG_WARN("Server channel: socket init_tcp() (skipped)", addr.to_string());
             continue;
         }
 
-        // Get local endpoint
-        bound_local_endpoint = addr;
-        socklen_t len = bound_local_endpoint.socklen();
-        if (getsockname(sock, bound_local_endpoint.address(), &len) != 0) {
-            LOG_ERROR("getsockname() failed. Can't get bound endpoint for {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
+        // Bind to specified endpoint
+        if (!sock->bind(addr, &bound_local_endpoint)) {
+            LOG_WARN("Server channel: can't bind to {} (skipped)", addr.to_string());
             continue;
         }
 
         // Start listen()
-        if (listen(sock, /*backlog*/256) != 0) {
-            LOG_ERROR("listen() failed. Can't listen on {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
+        if (!sock->listen(256)) {
+            LOG_ERROR("Server channel: listen() on {} failed (skipped)", addr.to_string());
             continue;
         }
 
         LOG_INFO("Server channel {} binds to {}", required_endpoint.to_string(), bound_local_endpoint.to_string());
         bound = true;
-        sweep.suppress_sweep();
+        error_cleanup.suppress_sweep();
         break;
     }
 
@@ -294,10 +276,10 @@ bool xcp::server_channel_state::init()
 
 void xcp::server_channel_state::dispose_impl() noexcept /*override*/
 {
-    if (sock != infra::INVALID_SOCKET_VALUE) {
+    if (sock) {
         LOG_INFO("Close server channel {} bound to {}", required_endpoint.to_string(), bound_local_endpoint.to_string());
-        infra::close_socket(sock);
-        sock = infra::INVALID_SOCKET_VALUE;
+        sock->dispose();
+        sock.reset();
     }
 
     if (thread_accept.joinable()) {
@@ -310,18 +292,15 @@ void xcp::server_channel_state::fn_thread_accept()
     LOG_TRACE("Server channel accepting: {}", bound_local_endpoint.to_string());
 
     while (true) {
-        infra::tcp_sockaddr peer_addr;
-        peer_addr.addr.ss_family = bound_local_endpoint.family();
-        socklen_t len = peer_addr.socklen();
-
-        infra::socket_t accepted_sock = accept(sock, peer_addr.address(), &len);
-        if (accepted_sock == infra::INVALID_SOCKET_VALUE) {
+        infra::tcp_sockaddr peer_addr { };
+        std::shared_ptr<infra::os_socket_t> accepted_sock = sock->accept(&peer_addr);
+        if (!accepted_sock) {
             if (infra::sighandle::is_exit_required()) {
                 LOG_DEBUG("Exit requried. Stop accept() on server channel {}", bound_local_endpoint.to_string());
                 break;
             }
             else {
-                LOG_ERROR("accept() on {} failed. {}", bound_local_endpoint.to_string(), infra::socket_error_description());
+                LOG_ERROR("Channel: accept() on {} failed", bound_local_endpoint.to_string());
                 continue;
             }
         }
@@ -332,8 +311,8 @@ void xcp::server_channel_state::fn_thread_accept()
         launch_thread([this, accepted_sock, peer_addr](std::thread* const thr) mutable {
 
             infra::sweeper error_cleanup = [&]() {
-                infra::close_socket(accepted_sock);
-                accepted_sock = infra::INVALID_SOCKET_VALUE;
+                accepted_sock->dispose();
+                accepted_sock.reset();
 
                 // Cleanup current thread (make it detached)
                 thr->detach();
@@ -343,10 +322,8 @@ void xcp::server_channel_state::fn_thread_accept()
             // Receive identity
             infra::identity_t identity;
             {
-                const int cnt = (int)recv(accepted_sock, (char*)&identity, sizeof(identity), MSG_WAITALL);
-                if (cnt != (int)sizeof(identity)) {
-                    LOG_ERROR("Server channel: receive identity from peer {} expects {}, but returns {}. {}",
-                              peer_addr.to_string(), sizeof(identity), cnt, infra::socket_error_description());
+                if (!accepted_sock->recv(&identity, sizeof(infra::identity_t))) {
+                    LOG_ERROR("Server channel: receive identity from peer {} failed", peer_addr.to_string());
                     return;
                 }
 
@@ -417,53 +394,34 @@ bool xcp::server_portal_state::init()
     //
     bool bound = false;
     for (const infra::tcp_sockaddr& addr : program_options->arg_portal->resolved_sockaddrs) {
-        sock = socket(addr.family(), SOCK_STREAM, IPPROTO_TCP);
-        if (sock == infra::INVALID_SOCKET_VALUE) {
-            LOG_WARN("Can't create socket for portal {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
-            continue;
-        }
+        sock = std::make_shared<infra::os_socket_t>();
 
-        infra::sweeper sweep = [&]() {
-            infra::close_socket(sock);
-            sock = infra::INVALID_SOCKET_VALUE;
+        infra::sweeper error_cleanup = [&]() {
+            sock->dispose();
+            sock.reset();
         };
 
-        // Enable SO_REUSEADDR, SO_REUSEPORT
-        constexpr int value_1 = 1;
-        if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&value_1, sizeof(value_1)) != 0) {
-            LOG_WARN("setsockopt(SO_REUSEADDR) failed. {} (skipped)", infra::socket_error_description());
+        // Init socket
+        if (!sock->init_tcp(addr.family())) {
+            LOG_WARN("Portal: socket init_tcp() failed (skipped)");
             continue;
         }
-
-#if defined(SO_REUSEPORT)
-        if (setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, (const char*)&value_1, sizeof(value_1)) != 0) {
-            LOG_WARN("setsockopt(SO_REUSEPORT) failed. {} (skipped)", infra::socket_error_description());
-            continue;
-        }
-#endif
 
         // Bind to specified endpoint
-        if (bind(sock, addr.address(), addr.socklen()) != 0) {
-            LOG_WARN("Can't bind to {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
+        if (!sock->bind(addr, &bound_local_endpoint)) {
+            LOG_WARN("Portal: can't bind to {} (skipped)", addr.to_string());
             continue;
         }
 
-        // Get local endpoint
-        bound_local_endpoint = addr;  // actually only family is important
-        socklen_t len = bound_local_endpoint.socklen();
-        if (getsockname(sock, bound_local_endpoint.address(), &len) != 0) {
-            LOG_ERROR("getsockname() failed. Can't get bound endpoint for {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
-            continue;
-        }
         // Start listen()
-        if (listen(sock, /*backlog*/256) != 0) {
-            LOG_ERROR("listen() failed. Can't listen on {}. {} (skipped)", addr.to_string(), infra::socket_error_description());
+        if (!sock->listen(256)) {
+            LOG_ERROR("Portal: listen() on {} failed (skipped)", addr.to_string());
             continue;
         }
 
         LOG_INFO("Server portal {} binds to {}", program_options->arg_portal->to_string(), bound_local_endpoint.to_string());
         bound = true;
-        sweep.suppress_sweep();
+        error_cleanup.suppress_sweep();
         break;
     }
 
@@ -491,10 +449,10 @@ bool xcp::server_portal_state::init()
 void xcp::server_portal_state::dispose_impl() noexcept /*override*/
 {
     // Stop server portal socket
-    if (sock != infra::INVALID_SOCKET_VALUE) {
+    if (sock) {
         LOG_INFO("Close server portal {} bound to {}", program_options->arg_portal->to_string(), bound_local_endpoint.to_string());
-        infra::close_socket(sock);
-        sock = infra::INVALID_SOCKET_VALUE;
+        sock->dispose();
+        sock.reset();
     }
 
     if (thread_accept.joinable()) {
@@ -529,17 +487,14 @@ void xcp::server_portal_state::fn_thread_accept()
 
     while (true) {
         infra::tcp_sockaddr peer_addr { };
-        peer_addr.addr.ss_family = bound_local_endpoint.family();
-        socklen_t len = peer_addr.socklen();
-
-        const infra::socket_t accepted_sock = accept(sock, peer_addr.address(), &len);
-        if (accepted_sock == infra::INVALID_SOCKET_VALUE) {
+        std::shared_ptr<infra::os_socket_t> accepted_sock = sock->accept(&peer_addr);
+        if (!accepted_sock) {
             if (infra::sighandle::is_exit_required()) {
                 LOG_DEBUG("Exit requried. Stop accept() on server portal {}", bound_local_endpoint.to_string());
                 break;
             }
             else {
-                LOG_ERROR("accept() on {} failed. {}", bound_local_endpoint.to_string(), infra::socket_error_description());
+                LOG_ERROR("Server portal: accept() on {} failed", bound_local_endpoint.to_string());
                 continue;
             }
         }
@@ -557,12 +512,15 @@ void xcp::server_portal_state::fn_thread_accept()
     }
 }
 
-void xcp::server_portal_state::fn_task_accepted_portal(std::thread* const thr, infra::socket_t accepted_sock, const infra::tcp_sockaddr& peer_addr)
+void xcp::server_portal_state::fn_task_accepted_portal(
+    std::thread* const thr, 
+    std::shared_ptr<infra::os_socket_t> accepted_sock,
+    const infra::tcp_sockaddr& peer_addr)
 {
     infra::sweeper error_cleanup = [&]() {
-        if (accepted_sock != infra::INVALID_SOCKET_VALUE) {
-            infra::close_socket(accepted_sock);
-            accepted_sock = infra::INVALID_SOCKET_VALUE;
+        if (accepted_sock) {
+            accepted_sock->dispose();
+            accepted_sock.reset();
         }
 
         // Cleanup current thread (make it detached)
@@ -574,10 +532,8 @@ void xcp::server_portal_state::fn_task_accepted_portal(std::thread* const thr, i
     // Receive client identity from portal
     infra::identity_t identity;
     {
-        const int cnt = (int)recv(accepted_sock, (char*)&identity, sizeof(identity), MSG_WAITALL);
-        if (cnt != (int)sizeof(identity)) {
-            LOG_ERROR("Server portal: receive identity from peer {} expects {}, but returns {}. {}",
-                      peer_addr.to_string(), sizeof(identity), cnt, infra::socket_error_description());
+        if (!accepted_sock->recv(&identity, sizeof(identity))) {
+            LOG_ERROR("Server portal: receive identity from peer {} failed", peer_addr.to_string());
             return;
         }
 

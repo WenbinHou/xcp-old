@@ -3,7 +3,7 @@
 namespace xcp
 {
     template<typename T>
-    bool message_send(infra::socket_t const sock, const T& msg)
+    bool message_send(std::shared_ptr<infra::os_socket_t> sock, const T& msg)
     {
         const message_type type = T::type;
 
@@ -31,19 +31,18 @@ namespace xcp
         *(std::uint32_t*)&buffer[4] = htonl(binary_size);
 
         {
-            const int cnt = (int)send(sock, buffer, sizeof(buffer), 0);  // TODO: MSG_MORE
-            if (cnt != (int)sizeof(buffer)) {
-                LOG_ERROR("send() message prefix expects {}, but returns {}. {}",
-                          sizeof(buffer), cnt, infra::socket_error_description());
-                return false;
-            }
-        }
+            infra::socket_io_vec vec[2];
 
-        {
-            const int cnt = (int)send(sock, binary.data(), binary_size, 0);
-            if (cnt != (int)binary_size) {
-                LOG_ERROR("send() message expects {}, but returns {}. {}",
-                          binary_size, cnt, infra::socket_error_description());
+            // header
+            vec[0].ptr = &buffer;
+            vec[0].len = sizeof(buffer);
+
+            // message
+            vec[1].ptr = binary.data();
+            vec[1].len = binary_size;
+
+            if (!sock->sendv(vec)) {
+                LOG_ERROR("message_send: sendv() failed");
                 return false;
             }
         }
@@ -53,19 +52,16 @@ namespace xcp
 
 
     template<typename T>
-    bool message_recv(infra::socket_t const sock, /*out*/ T& msg)
+    bool message_recv(std::shared_ptr<infra::os_socket_t> sock, /*out*/ T& msg)
     {
         const message_type expected_type = T::type;
 
         char buffer[8];
-        {
-            const int cnt = (int)recv(sock, buffer, sizeof(buffer), MSG_WAITALL);
-            if (cnt != (int)sizeof(buffer)) {
-                LOG_ERROR("recv() message prefix expects {}, but returns {}. {}",
-                          sizeof(buffer), cnt, infra::socket_error_description());
-                return false;
-            }
+        if (!sock->recv(buffer, sizeof(buffer))) {
+            LOG_ERROR("message_recv: recv() message header failed");
+            return false;
         }
+
         const message_type type = (message_type)ntohl(*(std::uint32_t*)&buffer[0]);
         const uint32_t binary_size = ntohl(*(std::uint32_t*)&buffer[4]);
 
@@ -78,13 +74,9 @@ namespace xcp
         // TODO: optimize for better performance
         std::string binary;
         binary.resize(binary_size);
-        {
-            const int cnt = (int)recv(sock, binary.data(), binary_size, MSG_WAITALL);
-            if (cnt != (int)binary_size) {
-                LOG_ERROR("recv() message expects {}, but returns {}. {}",
-                          binary_size, cnt, infra::socket_error_description());
-                return false;
-            }
+        if (!sock->recv(binary.data(), binary_size)) {
+            LOG_ERROR("message_recv: recv() message body failed");
+            return false;
         }
 
         try {
@@ -101,8 +93,8 @@ namespace xcp
 
 
 #define _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(_Message_) \
-    template bool message_send<_Message_>(infra::socket_t const sock, const _Message_& msg); \
-    template bool message_recv<_Message_>(infra::socket_t const sock, /*out*/ _Message_& msg);
+    template bool message_send<_Message_>(std::shared_ptr<infra::os_socket_t> sock, const _Message_& msg); \
+    template bool message_recv<_Message_>(std::shared_ptr<infra::os_socket_t> sock, /*out*/ _Message_& msg);
 
     _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_client_hello_request)
     _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_server_hello_response)

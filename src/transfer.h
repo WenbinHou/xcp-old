@@ -27,8 +27,8 @@ namespace xcp
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_base)
         transfer_base() noexcept = default;
 
-        virtual bool invoke_portal(infra::socket_t sock) = 0;
-        virtual bool invoke_channel(infra::socket_t sock) = 0;
+        virtual bool invoke_portal(std::shared_ptr<infra::os_socket_t> sock) = 0;
+        virtual bool invoke_channel(std::shared_ptr<infra::os_socket_t> sock) = 0;
 
         const basic_file_info& get_file_info() const noexcept
         {
@@ -52,8 +52,8 @@ namespace xcp
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_source)
         explicit transfer_source(const std::string& src_path, uint64_t transfer_block_size);  // throws transfer_error
 
-        bool invoke_portal(infra::socket_t sock) override;
-        bool invoke_channel(infra::socket_t sock) override;
+        bool invoke_portal(std::shared_ptr<infra::os_socket_t> sock) override;
+        bool invoke_channel(std::shared_ptr<infra::os_socket_t> sock) override;
 
         void dispose_impl() noexcept override final;
         ~transfer_source() noexcept override final { this->async_dispose(true); }
@@ -87,8 +87,8 @@ namespace xcp
         transfer_destination(const std::string& src_file_name, const std::string& dst_path);  // throws transfer_error
         void init_file(const basic_file_info& file_info, size_t total_channel_repeats_count);  // throws transfer_error
 
-        bool invoke_portal(infra::socket_t sock) override;
-        bool invoke_channel(infra::socket_t sock) override;
+        bool invoke_portal(std::shared_ptr<infra::os_socket_t> sock) override;
+        bool invoke_channel(std::shared_ptr<infra::os_socket_t> sock) override;
 
         void dispose_impl() noexcept override final;
         ~transfer_destination() noexcept override final { this->async_dispose(true); }

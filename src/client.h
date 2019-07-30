@@ -34,7 +34,7 @@ namespace xcp
         client_portal_state& portal;
         std::thread thread_work { };
         const infra::tcp_sockaddr server_channel_sockaddr { };
-        infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
+        std::shared_ptr<infra::os_socket_t> sock { nullptr };
     };
 
 
@@ -67,7 +67,7 @@ namespace xcp
 
         std::thread thread_work { };
         infra::tcp_sockaddr connected_remote_endpoint { };
-        infra::socket_t sock = infra::INVALID_SOCKET_VALUE;
+        std::shared_ptr<infra::os_socket_t> sock { nullptr };
 
         std::shared_ptr<transfer_base> transfer { nullptr };
 

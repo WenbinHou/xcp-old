@@ -72,10 +72,10 @@ namespace xcp
 
 
     template<typename T>
-    bool message_send(infra::socket_t sock, const T& msg);
+    bool message_send(std::shared_ptr<infra::os_socket_t> sock, const T& msg);
 
     template<typename T>
-    bool message_recv(infra::socket_t sock, /*out*/ T& msg);
+    bool message_recv(std::shared_ptr<infra::os_socket_t> sock, /*out*/ T& msg);
 
 }  // namespace xcp
 
