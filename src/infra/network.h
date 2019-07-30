@@ -41,12 +41,10 @@ namespace infra
     }
 
 
-    union tcp_sockaddr
+    struct tcp_sockaddr
     {
-    public:
-        struct sockaddr_storage addr;
-        struct sockaddr_in addr_ipv4;
-        struct sockaddr_in6 addr_ipv6;
+    private:
+        char _data[sizeof(sockaddr_storage)];
 
     public:
         XCP_DEFAULT_COPY_CONSTRUCTOR(tcp_sockaddr)
@@ -58,13 +56,25 @@ namespace infra
         uint16_t port() const noexcept;
 
         [[nodiscard]]
-        uint16_t family() const noexcept { return addr.ss_family; }
+        uint16_t family() const noexcept { return address()->sa_family; }
 
         [[nodiscard]]
-        const sockaddr* address() const noexcept { return (const sockaddr*)&addr; }
+        const sockaddr* address() const noexcept { return (const sockaddr*)_data; }
 
         [[nodiscard]]
-        sockaddr* address() noexcept { return (sockaddr*)&addr; }
+        sockaddr* address() noexcept { return (sockaddr*)_data; }
+
+        [[nodiscard]]
+        const sockaddr_in& addr_ipv4() const noexcept { return *(const sockaddr_in*)_data; }
+
+        [[nodiscard]]
+        sockaddr_in& addr_ipv4() noexcept { return *(sockaddr_in*)_data; }
+
+        [[nodiscard]]
+        const sockaddr_in6& addr_ipv6() const noexcept { return *(const sockaddr_in6*)_data; }
+
+        [[nodiscard]]
+        sockaddr_in6& addr_ipv6() noexcept { return *(sockaddr_in6*)_data; }
 
         [[nodiscard]]
         socklen_t socklen() const noexcept;
@@ -78,7 +88,7 @@ namespace infra
         [[nodiscard]]
         bool is_addr_any() const noexcept;
 
-        XCP_DEFAULT_SERIALIZATION(cereal::binary_data(&addr, sizeof(sockaddr_storage)))
+        XCP_DEFAULT_SERIALIZATION(cereal::binary_data(_data, sizeof(_data)))
     };
 
 

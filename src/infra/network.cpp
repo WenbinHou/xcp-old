@@ -4,45 +4,45 @@
 
 
 //==============================================================================
-// union tcp_sockaddr
+// struct tcp_sockaddr
 //==============================================================================
 
 void infra::tcp_sockaddr::set_port(const uint16_t port_in_host_endian) noexcept
 {
     if (family() == AF_INET) {
-        addr_ipv4.sin_port = htons(port_in_host_endian);
+        addr_ipv4().sin_port = htons(port_in_host_endian);
     }
     else if (family() == AF_INET6) {
-        addr_ipv6.sin6_port = htons(port_in_host_endian);
+        addr_ipv6().sin6_port = htons(port_in_host_endian);
     }
     else {
-        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        PANIC_TERMINATE("BUG: Unknown family: {}", address()->sa_family);
     }
 }
 
 uint16_t infra::tcp_sockaddr::port() const noexcept
 {
     if (family() == AF_INET) {
-        return ntohs(addr_ipv4.sin_port);
+        return ntohs(addr_ipv4().sin_port);
     }
     else if (family() == AF_INET6) {
-        return ntohs(addr_ipv6.sin6_port);
+        return ntohs(addr_ipv6().sin6_port);
     }
     else {
-        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        PANIC_TERMINATE("BUG: Unknown family: {}", address()->sa_family);
     }
 }
 
 socklen_t infra::tcp_sockaddr::socklen() const noexcept
 {
     if (family() == AF_INET) {
-        return sizeof(addr_ipv4);
+        return sizeof(addr_ipv4());
     }
     else if (family() == AF_INET6) {
-        return sizeof(addr_ipv6);
+        return sizeof(addr_ipv6());
     }
     else {
-        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        PANIC_TERMINATE("BUG: Unknown family: {}", address()->sa_family);
     }
 }
 
@@ -52,26 +52,26 @@ std::string infra::tcp_sockaddr::to_string() const
     std::string result;
 
     if (family() == AF_INET) {
-        if (inet_ntop(AF_INET, (void*)&addr_ipv4.sin_addr, buffer, sizeof(buffer)) == nullptr) {
+        if (inet_ntop(AF_INET, (void*)&addr_ipv4().sin_addr, buffer, sizeof(buffer)) == nullptr) {
             LOG_ERROR("inet_ntop(AF_INET) unexpecedly failed");
             return "FAILED_TO_STRING";
         }
         result = buffer;
         result += ":";
-        result += std::to_string(ntohs(addr_ipv4.sin_port));
+        result += std::to_string(ntohs(addr_ipv4().sin_port));
     }
     else if (family() == AF_INET6) {
-        if (inet_ntop(AF_INET6, (void*)&addr_ipv6.sin6_addr, buffer, sizeof(buffer)) == nullptr) {
+        if (inet_ntop(AF_INET6, (void*)&addr_ipv6().sin6_addr, buffer, sizeof(buffer)) == nullptr) {
             LOG_ERROR("inet_ntop(AF_INET6) unexpecedly failed");
             return "FAILED_TO_STRING";
         }
         result = "[";
         result += buffer;
         result += "]:";
-        result += std::to_string(ntohs(addr_ipv6.sin6_port));
+        result += std::to_string(ntohs(addr_ipv6().sin6_port));
     }
     else {
-        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        PANIC_TERMINATE("BUG: Unknown family: {}", address()->sa_family);
     }
 
     return result;
@@ -80,13 +80,13 @@ std::string infra::tcp_sockaddr::to_string() const
 bool infra::tcp_sockaddr::is_addr_any() const noexcept
 {
     if (family() == AF_INET) {
-        return addr_ipv4.sin_addr.s_addr == INADDR_ANY;
+        return addr_ipv4().sin_addr.s_addr == INADDR_ANY;
     }
     else if (family() == AF_INET6) {
-        return memcmp(&addr_ipv6.sin6_addr, &in6addr_any, sizeof(struct in6_addr)) == 0;
+        return memcmp(&addr_ipv6().sin6_addr, &in6addr_any, sizeof(struct in6_addr)) == 0;
     }
     else {
-        PANIC_TERMINATE("BUG: Unknown addr.ss_family: {}", addr.ss_family);
+        PANIC_TERMINATE("BUG: Unknown family: {}", address()->sa_family);
     }
 }
 
@@ -199,17 +199,17 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::resolve()
         // IPv6: [::]
         {
             tcp_sockaddr tmp { };
-            tmp.addr_ipv6.sin6_family = AF_INET6;
-            tmp.addr_ipv6.sin6_addr = in6addr_any;
-            tmp.addr_ipv6.sin6_port = htons(this->port.value());
+            tmp.addr_ipv6().sin6_family = AF_INET6;
+            tmp.addr_ipv6().sin6_addr = in6addr_any;
+            tmp.addr_ipv6().sin6_port = htons(this->port.value());
             sockaddrs.emplace_back(tmp);
         }
         // IPv4: 0.0.0.0
         {
             tcp_sockaddr tmp { };
-            tmp.addr_ipv4.sin_family = AF_INET;
-            tmp.addr_ipv4.sin_addr.s_addr = INADDR_ANY;
-            tmp.addr_ipv4.sin_port = htons(this->port.value());
+            tmp.addr_ipv4().sin_family = AF_INET;
+            tmp.addr_ipv4().sin_addr.s_addr = INADDR_ANY;
+            tmp.addr_ipv4().sin_port = htons(this->port.value());
             sockaddrs.emplace_back(tmp);
         }
         this->resolved_sockaddrs = std::move(sockaddrs);
@@ -246,12 +246,12 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::resolve()
     for (addrinfo* p = results; p != nullptr; p = p->ai_next) {
         tcp_sockaddr tmp { };
         if (p->ai_family == AF_INET) {
-            tmp.addr_ipv4 = *reinterpret_cast<sockaddr_in*>(p->ai_addr);
-            tmp.addr_ipv4.sin_port = htons(this->port.value());
+            tmp.addr_ipv4() = *reinterpret_cast<sockaddr_in*>(p->ai_addr);
+            tmp.addr_ipv4().sin_port = htons(this->port.value());
         }
         else if (p->ai_family == AF_INET6) {
-            tmp.addr_ipv6 = *reinterpret_cast<sockaddr_in6*>(p->ai_addr);
-            tmp.addr_ipv6.sin6_port = htons(this->port.value());
+            tmp.addr_ipv6() = *reinterpret_cast<sockaddr_in6*>(p->ai_addr);
+            tmp.addr_ipv6().sin6_port = htons(this->port.value());
         }
         else {
             LOG_ERROR("Unknown ai_family: {} (ignored)", p->ai_family);
