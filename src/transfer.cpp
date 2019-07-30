@@ -564,6 +564,11 @@ namespace xcp
                 throw transfer_error(errno, std::string("mmap() ") + _dst_file_path.c_str() + " for write failed");
             }
             LOG_TRACE("mmap() {} to {}", _dst_file_path.c_str(), _dst_file_mapped);
+
+            if (madvise(_dst_file_mapped, _file_info->file_size, MADV_SEQUENTIAL) != 0) {
+                LOG_WARN("madvise({}, size={}, MADV_SEQUENTIAL) failed. errno = {} ({})", _dst_file_mapped, _file_info->file_size, errno, strerror(errno));
+                // Don't throw a transfer_error
+            }
         }
 #else
 #   error "Unknown platform"
