@@ -261,8 +261,8 @@ namespace xcp
     //--------------------------------------------------------------------------
     bool transfer_destination::invoke_portal(std::shared_ptr<infra::os_socket_t> sock) /*override*/
     {
-        // Wait for _sem_all_channels_finished
-        this->_sem_all_channels_finished.wait();
+        // Wait for all channels finished
+        this->_gate_all_channels_finished.wait();
 
         // Send message_transfer_destination_finished
         LOG_TRACE("Transfer portal: sending message_transfer_destination_finished...");
@@ -283,10 +283,7 @@ namespace xcp
     bool transfer_destination::invoke_channel(std::shared_ptr<infra::os_socket_t> sock) /*override*/
     {
         const infra::sweeper sweep = [&]() {
-            const size_t finished = ++this->_finished_channel_repeats_count;
-            if (finished == this->_total_channel_repeats_count) {
-                this->_sem_all_channels_finished.post();
-            }
+            this->_gate_all_channels_finished.signal();
         };
 
         while (true) {
@@ -415,7 +412,9 @@ namespace xcp
     {
         ASSERT(!this->_file_info.has_value());
         this->_file_info = file_info;
-        this->_total_channel_repeats_count = total_channel_repeats_count;
+
+        ASSERT(total_channel_repeats_count > 0);
+        this->_gate_all_channels_finished.init(total_channel_repeats_count);
 
 #if PLATFORM_WINDOWS
         _file_handle = CreateFileW(

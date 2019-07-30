@@ -94,9 +94,7 @@ namespace xcp
         ~transfer_destination() noexcept override final { this->async_dispose(true); }
 
     private:
-        size_t _total_channel_repeats_count;
-        std::atomic_size_t _finished_channel_repeats_count { 0 };
-        infra::semaphore _sem_all_channels_finished { 0 };
+        infra::gate_guard _gate_all_channels_finished { };
 
         stdfs::path _dst_file_path;
         void* _dst_file_mapped = nullptr;

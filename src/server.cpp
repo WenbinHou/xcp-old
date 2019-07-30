@@ -166,7 +166,7 @@ void xcp::client_instance::fn_portal()
 
     // Wait for all channel repeats are connected
     {
-        sem_all_channel_repeats_connected.wait();
+        gate_all_channel_repeats_connected.wait();
         if (is_dispose_required()) {  // unlikely
             LOG_TRACE("Client #{} portal: dispose() required", this->id);
             return;
@@ -198,16 +198,13 @@ void xcp::client_instance::fn_channel(std::shared_ptr<infra::os_socket_t> accept
 
     LOG_TRACE("Client #{} channel: channel initialization done", this->id);
 
-    // Signal if all channel repeats are connected
-    if (++connected_channel_repeats_count == total_channel_repeats_count) {
-        LOG_TRACE("Client #{} channel: all {} channel repeats are connected", this->id, total_channel_repeats_count);
-        sem_all_channel_repeats_connected.post();
-    }
+    // Signal one channel connection is established
+    gate_all_channel_repeats_connected.signal();
 
     // Run transfer
     {
         ASSERT(this->transfer != nullptr);
-        const bool success = this->transfer->invoke_channel(accepted_channel_socket);
+        const bool success = this->transfer->invoke_channel(std::move(accepted_channel_socket));
         if (!success) {
             LOG_ERROR("Client #{} channel: transfer failed", this->id);
             return;
@@ -225,10 +222,8 @@ void xcp::client_instance::dispose_impl() noexcept /*override*/
         accepted_portal_socket.reset();
     }
 
-    // Post sem_all_channel_repeats_connected to allow portal_thread to go on (if necessary)
-    if (connected_channel_repeats_count < total_channel_repeats_count) {
-        sem_all_channel_repeats_connected.post();
-    }
+    // gate_all_channel_repeats_connected: allow portal_thread to go on
+    gate_all_channel_repeats_connected.force_signal_all();
 
     if (portal_thread) {
         ASSERT(portal_thread->joinable());
@@ -705,3 +700,5 @@ void xcp::server_portal_state::fn_thread_unified_accepted_socket(
 
     PANIC_TERMINATE("Unknown role should have been rejected: 0x{:08x}", role);
 }
+
+#include <utility>

@@ -21,7 +21,7 @@ namespace xcp
             std::shared_ptr<std::thread> portal_thread,
             const infra::tcp_sockaddr& peer_endpoint,
             const infra::identity_t& client_identity,
-            const size_t total_channel_repeats_count) noexcept
+            const size_t total_channel_repeats_count)
             : server_portal(server_portal),
               peer_endpoint(peer_endpoint),
               client_identity(client_identity),
@@ -29,7 +29,10 @@ namespace xcp
               portal_thread(std::move(portal_thread)),
               total_channel_repeats_count(total_channel_repeats_count),
               id(__next_id++)
-        { }
+        {
+            ASSERT(this->total_channel_repeats_count > 0);
+            gate_all_channel_repeats_connected.init(this->total_channel_repeats_count);
+        }
 
         void fn_portal();
         void fn_channel(std::shared_ptr<infra::os_socket_t> accepted_channel_socket);
@@ -50,9 +53,8 @@ namespace xcp
         std::vector<std::pair<std::shared_ptr<infra::os_socket_t>, std::shared_ptr<std::thread>>> channel_threads;
         std::shared_mutex channel_threads_mutex;
 
-        std::atomic_size_t connected_channel_repeats_count { 0 };
         const std::size_t total_channel_repeats_count;
-        infra::semaphore sem_all_channel_repeats_connected { 0 };
+        infra::gate_guard gate_all_channel_repeats_connected { };
 
         std::shared_ptr<transfer_base> transfer { nullptr };
 
