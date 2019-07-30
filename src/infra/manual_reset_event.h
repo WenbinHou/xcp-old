@@ -26,6 +26,8 @@ namespace infra
 
         void set()
         {
+            if (_is_set) return;
+
             std::unique_lock<std::mutex> lock(_mutex);
             _is_set = true;
             _cond.notify_all();
