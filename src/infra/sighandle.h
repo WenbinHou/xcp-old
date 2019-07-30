@@ -11,8 +11,7 @@ namespace infra
     class sighandle
     {
     private:
-        static inline std::atomic_bool __exit_required { false };
-        static inline semaphore __sem { 0 };
+        static inline gate_guard __gate { };
 
 #if PLATFORM_LINUX || PLATFORM_CYGWIN
         static void stop_handler(
@@ -37,40 +36,35 @@ namespace infra
         static void wait_for_exit_required()
         {
             try {
-                __sem.wait();
+                __gate.wait();
             }
             catch (const std::system_error& ex) {
                 if (ex.code() != std::error_code(EINTR, std::system_category())) {
                     throw;
                 }
 
-                if (!__exit_required) {
+                if (!is_exit_required()) {
                     throw;
                 }
-                // __sem.wait() is interrupted
+                // __gate.wait() is interrupted
+                LOG_WARN("23333");
             }
-
-            __sem.post();
         }
 
         static void require_exit()
         {
-            bool expected = false;
-            if (__exit_required.compare_exchange_strong(expected, true)) {
-                LOG_INFO("Exit required...");
-                __exit_required = true;
-
-                __sem.post();
-            }
+            __gate.signal();
         }
 
         static bool is_exit_required() noexcept
         {
-            return __exit_required;
+            return __gate.can_pass();
         }
 
         static void setup_signal_handler()
         {
+            __gate.init(1);
+
 #if PLATFORM_LINUX || PLATFORM_CYGWIN
             #define _SETUP_FOR_SIGNAL(_Signal_) \
                 do { \
