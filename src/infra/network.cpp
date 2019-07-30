@@ -111,12 +111,13 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::parse(const std::string& value)
     //  https://stackoverflow.com/questions/53497/regular-expression-that-matches-valid-ipv6-addresses
     //  https://stackoverflow.com/questions/106179/regular-expression-to-match-dns-hostname-or-ip-address
     // NOTE: re_valid_hostname matches a superset of valid IPv4
+    // NOTE: re_valid_hostname also includes '*', which is specially treated in resolve()
 
     static std::regex* __re = nullptr;
     if (__re == nullptr) {
-        const std::string re_valid_hostname = R"((?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*(?:[A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]))";
-        const std::string re_valid_ipv6 = R"(\[(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|::(?:[Ff]{4}(?::0{1,4})?:)?(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9]))\])";
-        const std::string re_valid_host = "(?:(?:" + re_valid_hostname + ")|(?:" + re_valid_ipv6 + "))";
+        const std::string re_valid_hostname = R"((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*(?:[A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])|\*))";
+        const std::string re_valid_ipv6 = R"((?:\[(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|::(?:[Ff]{4}(?::0{1,4})?:)?(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9]))\]))";
+        const std::string re_valid_host = "(?:" + re_valid_hostname + "|" + re_valid_ipv6 + ")";
         const std::string re_valid_endpoint = "^(" + re_valid_host + ")(?::([0-9]+|\\*))?(?:@([1-9][0-9]*))?$";
         __re = new std::regex(re_valid_endpoint, std::regex::optimize);
     }
@@ -132,6 +133,8 @@ bool infra::basic_tcp_endpoint<_WithRepeats>::parse(const std::string& value)
 
             // NOTE: If host is IPv6 surrounded by '[' ']', DO NOT trim the beginning '[' and ending ']'
             // resolve() should take care of this
+
+            // NOTE: host might be '*', resolve() should take care of this
         }
 
         {
@@ -190,6 +193,28 @@ template <bool _WithRepeats>
 bool infra::basic_tcp_endpoint<_WithRepeats>::resolve()
 {
     std::vector<tcp_sockaddr> sockaddrs;
+
+    // Special treat '*' as host
+    if (this->host == "*") {
+        // IPv6: [::]
+        {
+            tcp_sockaddr tmp { };
+            tmp.addr_ipv6.sin6_family = AF_INET6;
+            tmp.addr_ipv6.sin6_addr = in6addr_any;
+            tmp.addr_ipv6.sin6_port = htons(this->port.value());
+            sockaddrs.emplace_back(tmp);
+        }
+        // IPv4: 0.0.0.0
+        {
+            tcp_sockaddr tmp { };
+            tmp.addr_ipv4.sin_family = AF_INET;
+            tmp.addr_ipv4.sin_addr.s_addr = INADDR_ANY;
+            tmp.addr_ipv4.sin_port = htons(this->port.value());
+            sockaddrs.emplace_back(tmp);
+        }
+        this->resolved_sockaddrs = std::move(sockaddrs);
+        return true;
+    }
 
     addrinfo hint { };
     hint.ai_family = AF_UNSPEC;

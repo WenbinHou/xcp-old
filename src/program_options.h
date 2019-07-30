@@ -52,10 +52,10 @@ namespace xcp
 
     struct program_options_defaults
     {
-        static constexpr const char SERVER_PORTAL_HOST[] = "[::]";
+        static constexpr const char SERVER_PORTAL_HOST[] = "*";
         static constexpr const uint16_t SERVER_PORTAL_PORT = 62581;
 
-        static constexpr const char SERVER_CHANNEL_HOST[] = "[::]";
+        static constexpr const char SERVER_CHANNEL_HOST[] = "*";
         static constexpr const uint16_t SERVER_CHANNEL_PORT = 0;
         static constexpr const size_t SERVER_CHANNEL_REPEATS = 12;
 
