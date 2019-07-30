@@ -103,9 +103,10 @@ namespace xcp
                 else if (tmp_block_size == 0) {
                     tmp_block_size = (1U << ALIGN_SHIFT);
                 }
-                curr_channel_block_size = (uint32_t)tmp_block_size;
 
-                LOG_TRACE("Channel: elapsed: {} usec, new channel_block_size: {}", elapsed_usec, curr_channel_block_size);
+                LOG_TRACE("Channel: sent {} took {} usec, new channel_block_size: {}",
+                          curr_channel_block_size, elapsed_usec, tmp_block_size);
+                curr_channel_block_size = (uint32_t)tmp_block_size;
             }
 
             LOG_TRACE("Channel: sent file block: offset = {}, block_size = {}", curr, block_size);

@@ -27,11 +27,12 @@ namespace xcp
               client_identity(client_identity),
               accepted_portal_socket(std::move(accepted_portal_socket)),
               portal_thread(std::move(portal_thread)),
-              total_channel_repeats_count(total_channel_repeats_count)
+              total_channel_repeats_count(total_channel_repeats_count),
+              id(__next_id++)
         { }
 
         void fn_portal();
-        void fn_channel(std::shared_ptr<infra::os_socket_t> accepted_channel_socket, infra::tcp_sockaddr channel_peer_endpoint);
+        void fn_channel(std::shared_ptr<infra::os_socket_t> accepted_channel_socket);
         void dispose_impl() noexcept override final;
         ~client_instance() noexcept override final { this->async_dispose(true); }
 
@@ -52,6 +53,11 @@ namespace xcp
         infra::semaphore sem_all_channel_repeats_connected { 0 };
 
         std::shared_ptr<transfer_base> transfer { nullptr };
+
+        const uint64_t id;
+
+    private:
+        static inline std::atomic_uint64_t __next_id { 0 };
     };
 
 

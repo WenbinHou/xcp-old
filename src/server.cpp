@@ -25,12 +25,12 @@ void xcp::client_instance::fn_portal()
     {
         message_client_hello_request msg;
         if (!message_recv(accepted_portal_socket, msg)) {
-            LOG_ERROR("Peer {}: receive message_client_hello_request failed", peer_endpoint.to_string());
+            LOG_ERROR("Client #{} portal: receive message_client_hello_request failed", this->id);
             return;
         }
 
-        LOG_TRACE("Peer {}: request: is_from_server_to_client={}, client_file_name={}, server_path={}",
-                  peer_endpoint.to_string(), msg.is_from_server_to_client, msg.client_file_name, msg.server_path);
+        LOG_TRACE("Client #{} portal: request: is_from_server_to_client={}, client_file_name={}, server_path={}",
+                  this->id, msg.is_from_server_to_client, msg.client_file_name, msg.server_path);
 
         transfer_request.is_from_server_to_client = msg.is_from_server_to_client;
         transfer_request.client_file_name = std::move(msg.client_file_name);
@@ -47,8 +47,8 @@ void xcp::client_instance::fn_portal()
 
         // Check against relative path on server side
         if (stdfs::path(transfer_request.server_path).is_relative()) {
-            LOG_ERROR("Server portal (peer {}): server side path {} should not be relative path",
-                      peer_endpoint.to_string(), transfer_request.server_path);
+            LOG_ERROR("Client #{} portal: server side path {} should not be relative path",
+                      this->id, transfer_request.server_path);
             msg.error_code = EINVAL;
             msg.error_message = "Server side path is relative: " + transfer_request.server_path;
         }
@@ -73,7 +73,7 @@ void xcp::client_instance::fn_portal()
             catch(const transfer_error& ex) {
                 msg.error_code = ex.error_code;
                 msg.error_message = ex.error_message;
-                LOG_ERROR("Server portal (peer {}): {}", peer_endpoint.to_string(), msg.error_message);
+                LOG_ERROR("Client #{} portal: {}", this->id, msg.error_message);
             }
         }
 
@@ -86,53 +86,51 @@ void xcp::client_instance::fn_portal()
         }
 
         if (!message_send(accepted_portal_socket, msg)) {
-            LOG_ERROR("Server portal (peer {}): send message_server_hello_response failed", peer_endpoint.to_string());
+            LOG_ERROR("Client #{} portal: send message_server_hello_response failed", this->id);
             return;
         }
 
-        LOG_TRACE("Server portal (peer {}): response: error_code={}, server_channels.size()={}",
-                  peer_endpoint.to_string(), msg.error_code, msg.server_channels.size());
+        LOG_TRACE("Client #{} portal: response: error_code={}, server_channels.size()={}",
+                  this->id, msg.error_code, msg.server_channels.size());
     }
 
     // Wait for all channel repeats are connected
     {
         sem_all_channel_repeats_connected.wait();
         if (is_dispose_required()) {  // unlikely
-            LOG_TRACE("Server portal (peer {}): dispose() required", peer_endpoint.to_string());
+            LOG_TRACE("Client #{} portal: dispose() required", this->id);
             return;
         }
 
         message_server_ready_to_transfer msg;
         msg.error_code = 0;
         if (!message_send(accepted_portal_socket, msg)) {
-            LOG_ERROR("Server portal (peer {}): send message_server_ready_to_transfer failed", peer_endpoint.to_string());
+            LOG_ERROR("Client #{} portal: send message_server_ready_to_transfer failed", this->id);
             return;
         }
-        LOG_TRACE("Server portal (peer {}): now ready to transfer", peer_endpoint.to_string());
+        LOG_TRACE("Client #{} portal: now ready to transfer", this->id);
     }
 
     // Run transfer
     {
         const bool success = this->transfer->invoke_portal(accepted_portal_socket);
         if (!success) {
-            LOG_ERROR("Server portal (peer {}): transfer failed", peer_endpoint.to_string());
+            LOG_ERROR("Client #{} portal: transfer failed", this->id);
         }
     }
 }
 
-void xcp::client_instance::fn_channel(
-    std::shared_ptr<infra::os_socket_t> accepted_channel_socket,
-    infra::tcp_sockaddr channel_peer_endpoint)
+void xcp::client_instance::fn_channel(std::shared_ptr<infra::os_socket_t> accepted_channel_socket)
 {
     infra::sweeper error_cleanup = [&]() {
         this->async_dispose(false);
     };
 
-    LOG_TRACE("Channel (peer {}): channel initialization done", channel_peer_endpoint.to_string());
+    LOG_TRACE("Client #{} channel: channel initialization done", this->id);
 
     // Signal if all channel repeats are connected
     if (++connected_channel_repeats_count == total_channel_repeats_count) {
-        LOG_TRACE("Client: all {} channel repeats are connected", total_channel_repeats_count);
+        LOG_TRACE("Client #{} channel: all {} channel repeats are connected", this->id, total_channel_repeats_count);
         sem_all_channel_repeats_connected.post();
     }
 
@@ -141,7 +139,7 @@ void xcp::client_instance::fn_channel(
         ASSERT(this->transfer != nullptr);
         const bool success = this->transfer->invoke_channel(accepted_channel_socket);
         if (!success) {
-            LOG_ERROR("Server channel (peer {}): transfer failed", channel_peer_endpoint.to_string());
+            LOG_ERROR("Client #{} channel: transfer failed", this->id);
             return;
         }
     }
@@ -199,14 +197,15 @@ void xcp::client_instance::dispose_impl() noexcept /*override*/
     {
         if (!server_portal.is_dispose_required()) {
             const infra::identity_t identity = this->client_identity;
+            const uint64_t client_id = this->id;
             server_portal_state& portal = this->server_portal;
 
             // TODO: use thread pool?
-            std::thread thr([identity, &portal]() {
+            std::thread thr([identity, client_id, &portal]() {
                 if (!portal.is_dispose_required()) {
                     std::unique_lock<std::shared_mutex> lock(portal.clients_mutex);
                     portal.clients.erase(identity);
-                    LOG_DEBUG("Remove client instance");
+                    LOG_DEBUG("Remove client #{}", client_id);
                 }
             });
             thr.detach();
@@ -354,11 +353,12 @@ void xcp::server_channel_state::fn_thread_accept()
                 }
                 else {
                     client->channel_threads.emplace_back(accepted_sock, std::shared_ptr<std::thread>(thr));
+                    LOG_TRACE("Server channel: establish one channel between client #{} (peer: {})", client->id, peer_addr.to_string());
                 }
             }
 
             error_cleanup.suppress_sweep();
-            client->fn_channel(accepted_sock, peer_addr);
+            client->fn_channel(accepted_sock);
         });
     }
 }
@@ -558,6 +558,7 @@ void xcp::server_portal_state::fn_task_accepted_portal(
             identity,
             program_options->total_channel_repeats_count);
         clients.insert(std::make_pair(identity, client));
+        LOG_TRACE("Server portal: create new client #{}", client->id);
     }
 
     // Run client's fn_portal
