@@ -220,10 +220,10 @@ void xcp::client_portal_state::fn_thread_work()
     LOG_TRACE("Server portal connected: {}", connected_remote_endpoint.to_string());
 
     //
-    // Send greeting magic, role and identity
+    // Send greeting magic, role, identity, and protocol versions
     //
     {
-        infra::socket_io_vec vec[4];
+        infra::socket_io_vec vec[6];
 
         // GREETING_MAGIC_1
         const uint32_t magic1_be = htonl(portal_protocol::GREETING_MAGIC_1);
@@ -244,14 +244,54 @@ void xcp::client_portal_state::fn_thread_work()
         vec[3].ptr = &client_identity;
         vec[3].len = sizeof(client_identity);
 
+        // protocol version
+        // Currently we only supports version V1
+        static constexpr const uint16_t CLIENT_MIN_PROTOCOL_VERSION = portal_protocol::version::V1;
+        static constexpr const uint16_t CLIENT_MAX_PROTOCOL_VERSION = portal_protocol::version::V1;
+        static_assert(CLIENT_MIN_PROTOCOL_VERSION <= CLIENT_MAX_PROTOCOL_VERSION);
+
+        const uint16_t min_ver_be = htons(CLIENT_MIN_PROTOCOL_VERSION);
+        vec[4].ptr = &min_ver_be;
+        vec[4].len = sizeof(uint16_t);
+
+        const uint16_t max_ver_be = htons(CLIENT_MAX_PROTOCOL_VERSION);
+        vec[5].ptr = &max_ver_be;
+        vec[5].len = sizeof(uint16_t);
+
         if (!sock->sendv(vec)) {
-            LOG_ERROR("Client portal: sendv() greeting magic, role and identity to peer {} failed",
+            LOG_ERROR("Client portal: sendv() greeting magic, role, identity and protocol version to peer {} failed",
                       connected_remote_endpoint.to_string());
             return;
         }
 
-        LOG_TRACE("Client portal: send identity to peer {}", connected_remote_endpoint.to_string());
+        LOG_TRACE("Client portal: negotiate protocol version with peer {}", connected_remote_endpoint.to_string());
     }
+
+    //
+    // Receive negotiated protocol version (decided by server)
+    //
+    {
+        uint16_t ver_be = portal_protocol::version::INVALID;
+        if (!sock->recv(&ver_be, sizeof(uint16_t))) {
+            LOG_ERROR("Client portal: receive negotiated protocol version from peer {} failed",
+                      connected_remote_endpoint.to_string());
+            return;
+        }
+
+        protocol_version = ntohs(ver_be);
+        if (protocol_version == portal_protocol::version::INVALID) {
+            LOG_ERROR("Client portal: negotiate protocol version with peer {} failed. "
+                      "The server might be either too old or too new",
+                      connected_remote_endpoint.to_string());
+            return;
+        }
+
+        LOG_DEBUG("Client portal: negotiated protocol version: {}", protocol_version);
+    }
+
+    // Currently we only supports version V1
+    ASSERT(protocol_version == portal_protocol::version::V1);
+
 
     //
     // Send client request

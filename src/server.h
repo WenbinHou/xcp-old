@@ -45,6 +45,8 @@ namespace xcp
         std::shared_ptr<infra::os_socket_t> accepted_portal_socket;
         std::shared_ptr<std::thread> portal_thread;
 
+        uint16_t protocol_version = portal_protocol::version::INVALID;
+
         std::vector<std::pair<std::shared_ptr<infra::os_socket_t>, std::shared_ptr<std::thread>>> channel_threads;
         std::shared_mutex channel_threads_mutex;
 

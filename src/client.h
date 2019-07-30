@@ -62,6 +62,8 @@ namespace xcp
         std::shared_ptr<xcp_program_options> program_options;
         infra::identity_t client_identity;
 
+        uint16_t protocol_version = portal_protocol::version::INVALID;
+
         std::vector<std::shared_ptr<client_channel_state>> channels;
         std::shared_mutex channels_mutex { };
 

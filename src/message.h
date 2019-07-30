@@ -18,6 +18,12 @@ namespace xcp
             static constexpr const uint32_t ROLE_PORTAL = 0x8739e779;
             static constexpr const uint32_t ROLE_CHANNEL = 0x7fbc389b;
         };
+
+        struct version
+        {
+            static constexpr const uint16_t INVALID = 0x0000;
+            static constexpr const uint16_t V1 = 0x0001;
+        };
     };
 
     struct basic_file_info

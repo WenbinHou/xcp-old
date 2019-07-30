@@ -11,8 +11,68 @@ void xcp::client_instance::fn_portal()
         this->async_dispose(false);
     };
 
-
     // NOTE: client identity has been received
+
+
+    //
+    // Receive client supported protocol version
+    //
+    {
+        char buffer[4];
+        if (!accepted_portal_socket->recv(buffer, sizeof(buffer))) {
+            LOG_ERROR("Client #{} portal: receive client supported protocol version failed", this->id);
+            return;
+        }
+
+        const uint16_t min_ver = ntohs(*(uint16_t*)&buffer[0]);
+        const uint16_t max_ver = ntohs(*(uint16_t*)&buffer[2]);
+
+        if (min_ver > max_ver) {
+            LOG_ERROR("Client #{} portal: invalid protocol version range: min={}, max={} (min is larger than max)",
+                      this->id, min_ver, max_ver);
+            return;
+        }
+
+        // Currently we only supports version V1
+        static constexpr const uint16_t SERVER_MIN_PROTOCOL_VERSION = portal_protocol::version::V1;
+        static constexpr const uint16_t SERVER_MAX_PROTOCOL_VERSION = portal_protocol::version::V1;
+        static_assert(SERVER_MIN_PROTOCOL_VERSION <= SERVER_MAX_PROTOCOL_VERSION);
+
+        if (min_ver > SERVER_MAX_PROTOCOL_VERSION) {
+            this->protocol_version = portal_protocol::version::INVALID;
+            LOG_ERROR("Client #{} portal: client protocol version is too high: [{}, {}], but server only supports max={}",
+                      this->id, min_ver, max_ver, SERVER_MAX_PROTOCOL_VERSION);
+        }
+        else if (max_ver < SERVER_MIN_PROTOCOL_VERSION) {
+            this->protocol_version = portal_protocol::version::INVALID;
+            LOG_ERROR("Client #{} portal: client protocol version is too low: [{}, {}], but server only supports min={}",
+                      this->id, min_ver, max_ver, SERVER_MIN_PROTOCOL_VERSION);
+        }
+        else {
+            // Use the highest protocol version
+            this->protocol_version = std::min<uint16_t>(SERVER_MAX_PROTOCOL_VERSION, max_ver);
+            LOG_DEBUG("Client #{} portal: client protocol version range: [{}, {}], server protocol version range: [{}, {}], finally use {}",
+                      this->id, min_ver, max_ver, SERVER_MIN_PROTOCOL_VERSION, SERVER_MAX_PROTOCOL_VERSION, this->protocol_version);
+        }
+    }
+
+
+    //
+    // Send chosen protocol version, and go on if negotiation succeeds
+    //
+    {
+        uint16_t use_protocol_version_be = htons(this->protocol_version);
+        if (!accepted_portal_socket->send(&use_protocol_version_be, sizeof(uint16_t))) {
+            LOG_ERROR("Client #{} portal: send protocol version ({}) failed", this->id, this->protocol_version);
+            return;
+        }
+
+        if (this->protocol_version == portal_protocol::version::INVALID) {
+            LOG_ERROR("Client #{} portal: protocol version negotiation failed", this->id);
+            return;
+        }
+    }
+
 
     // Receive client request
     struct {
