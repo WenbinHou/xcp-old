@@ -192,6 +192,13 @@ namespace infra
         bool send_file(file_handle_t file_handle, uint64_t offset, uint32_t size, /*in,opt*/const socket_io_vec* header);
         bool recv(void* ptr, uint32_t size);
 
+        bool connect_and_send(
+            const tcp_sockaddr& addr,
+            const void* ptr,
+            const uint32_t size,
+            /*out,opt*/tcp_sockaddr* local_addr,
+            /*out,opt*/tcp_sockaddr* remote_addr);
+
         bool send(const void* ptr, const uint32_t size) {
             const socket_io_vec vec[1] { { ptr, size } };
             return sendv(vec);

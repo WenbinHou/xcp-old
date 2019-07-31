@@ -135,7 +135,7 @@ void xcp::client_instance::fn_portal()
             return;
         }
 
-        LOG_TRACE("Client #{} portal: sent message_server_information");
+        LOG_TRACE("Client #{} portal: sent message_server_information", this->id);
     }
 
 

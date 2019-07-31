@@ -388,6 +388,21 @@ bool infra::os_socket_t::listen(const int backlog)
 {
     ASSERT(_sock != INVALID_SOCKET_VALUE);
 
+    //
+    // Enable TCP_FASTOPEN for server if supported
+    //
+#if defined(TCP_FASTOPEN)
+    const int32_t value_1 = 1;
+    if (setsockopt(_sock, IPPROTO_TCP, TCP_FASTOPEN, (const char*)&value_1, sizeof(value_1)) != 0) {
+        LOG_WARN("setsockopt(TCP_FASTOPEN) failed. {}", error_description());
+        // TODO: Give more precise information based on running OS
+        // Don't return false
+    }
+#else
+    LOG_DEBUG("Compiled without TCP_FASTOPEN support");
+    _tcp_fastopen_supported = false;
+#endif
+
     if (::listen(_sock, backlog) != 0) {
         LOG_ERROR("listen(backlog={}) failed. {}", backlog, error_description());
         return false;
@@ -599,4 +614,63 @@ bool infra::os_socket_t::internal_sendv(const void* const vec, const uint32_t ve
 #endif
 
     return true;
+}
+
+
+bool infra::os_socket_t::connect_and_send(
+    const infra::tcp_sockaddr& addr,
+    const void* const ptr,
+    const uint32_t size,
+    infra::tcp_sockaddr* const local_addr,
+    infra::tcp_sockaddr* const remote_addr)
+{
+    if (size > 0) ASSERT(ptr != nullptr);
+
+#if defined(TCP_FASTOPEN)
+#   if PLATFORM_WINDOWS || PLATFORM_CYGWIN
+    {
+        // TODO: Use ConnectEx() for TCP_FASTOPEN
+        // But we need to confirm Windows is recent enough for TFO
+        // Also see issue: https://github.com/WenbinHou/xcp/issues/15
+
+        return this->connect(addr, local_addr, remote_addr) && this->send(ptr, size);
+    }
+#   elif PLATFORM_LINUX
+    {
+        const ssize_t ret = sendto(_sock, ptr, size, MSG_FASTOPEN, addr.address(), addr.socklen());
+        if (ret < 0 || (uint64_t)ret != (uint64_t)size) {
+            LOG_ERROR("TFO sendto() expects {}, but returns {}. {}", size, ret, error_description());
+            return false;
+        }
+
+        // Get local endpoint
+        if (local_addr) {
+            socklen_t len = local_addr->max_socklen();
+            if (getsockname(_sock, local_addr->address(), &len) != 0) {
+                LOG_ERROR("TFO sendto() to {} succeeded but getsockname() failed. {}", addr.to_string(), error_description());
+                return false;
+            }
+        }
+
+        // Get remote endpoint
+        if (remote_addr) {
+            socklen_t len = remote_addr->max_socklen();
+            if (getpeername(_sock, remote_addr->address(), &len) != 0) {
+                LOG_ERROR("TFO sendto() to {} succeeded but getpeername() failed. {}", addr.to_string(), error_description());
+                return false;
+            }
+        }
+
+        return true;
+    }
+#   else
+#       error "Unknown platform"
+#   endif
+
+#else  // !defined(TCP_FASTOPEN)
+
+    // Not compiled with TFO support
+    return this->connect(addr, local_addr, remote_addr) && this->send(ptr, size);
+
+#endif
 }
