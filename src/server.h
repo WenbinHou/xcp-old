@@ -32,6 +32,7 @@ namespace xcp
         {
             ASSERT(this->total_channel_repeats_count > 0);
             gate_all_channel_repeats_connected.init(this->total_channel_repeats_count);
+            gate_portal_ready_to_transfer.init(1);
         }
 
         void fn_portal();
@@ -55,6 +56,7 @@ namespace xcp
 
         const std::size_t total_channel_repeats_count;
         infra::gate_guard gate_all_channel_repeats_connected { };
+        infra::gate_guard gate_portal_ready_to_transfer { };
 
         std::shared_ptr<transfer_base> transfer { nullptr };
 

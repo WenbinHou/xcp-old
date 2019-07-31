@@ -96,8 +96,23 @@ void xcp::client_channel_state::fn_thread_work()
         LOG_TRACE("Channel {}: sent identity to peer", server_channel_sockaddr.to_string());
     }
 
-    // Run transfer
+    //
+    // Wait for client portal ready to transfer
+    //
     {
+        portal.gate_client_portal_ready.wait();
+        if (portal.is_dispose_required()) {  // unlikely
+            LOG_DEBUG("Channel {}: dispose() required", server_channel_sockaddr.to_string());
+            return;
+        }
+    }
+
+    //
+    // Run transfer
+    //
+    {
+        LOG_DEBUG("Channel {}: now transfer...", server_channel_sockaddr.to_string());
+
         ASSERT(portal.transfer != nullptr);
         const bool success = portal.transfer->invoke_channel(sock);
         if (!success) {
@@ -123,9 +138,7 @@ bool xcp::client_portal_state::init()
     //
     try {
         if (program_options->is_from_server_to_client) {  // from server to client
-            this->transfer = std::make_shared<transfer_destination>(
-                stdfs::path(program_options->arg_from_path.path).filename().u8string(),
-                program_options->arg_to_path.path);
+            this->transfer = std::make_shared<transfer_destination>(program_options->arg_to_path.path);
         }
         else {  // from client to server
             ASSERT(program_options->arg_transfer_block_size.has_value());
@@ -190,6 +203,9 @@ void xcp::client_portal_state::dispose_impl() noexcept
         sock->dispose();
         sock.reset();
     }
+
+    // Let connected channels not block
+    gate_client_portal_ready.force_signal_all();
 
     if (thread_work.joinable()) {
         thread_work.join();
@@ -294,75 +310,24 @@ void xcp::client_portal_state::fn_thread_work()
 
 
     //
-    // Send client request
-    //
-    {
-        message_client_hello_request msg;
-        msg.is_from_server_to_client = program_options->is_from_server_to_client;
-        ASSERT(program_options->arg_transfer_block_size.has_value());
-        msg.transfer_block_size = program_options->arg_transfer_block_size.value();
-        if (msg.is_from_server_to_client) {
-            msg.server_path = program_options->arg_from_path.path;
-            msg.client_file_name = stdfs::path(program_options->arg_to_path.path).filename().string();
-        }
-        else {  // from client to server
-            msg.server_path = program_options->arg_to_path.path;
-            msg.client_file_name = stdfs::path(program_options->arg_from_path.path).filename().string();
-            msg.file_info = this->transfer->get_file_info();
-        }
-
-        if (!message_send(sock, msg)) {
-            LOG_ERROR("Client portal: Send message_client_hello_request failed");
-            return;
-        }
-
-        LOG_TRACE("Client portal: send message_client_hello_request to peer {}", connected_remote_endpoint.to_string());
-    }
-
-    //
-    // Receive server response (including channels)
+    // Receive server information
     //
     std::vector<std::tuple<infra::tcp_sockaddr, size_t>> server_channels;
     {
-        message_server_hello_response msg;
+        message_server_information msg;
         if (!message_recv(sock, msg)) {
-            LOG_ERROR("Client portal: receive message_server_hello_response failed");
-            return;
-        }
-
-        if (msg.error_code != 0) {
-            LOG_ERROR("Server responds an error: {}. errno = {} ({})", msg.error_message, msg.error_code, strerror(msg.error_code));
+            LOG_ERROR("Client portal: receive message_server_transfer_response failed");
             return;
         }
 
         server_channels = std::move(msg.server_channels);
-
-        // Get total_channel_repeats_count
-        size_t total_channel_repeats_count = 0;
-        for (const auto& tuple : server_channels) {
-            const size_t repeats = std::get<1>(tuple);
-            total_channel_repeats_count += repeats;
-        }
-        LOG_TRACE("Client portal: server total_channel_repeats_count: {}", total_channel_repeats_count);
-
-        // Init file size if from server to client
-        if (program_options->is_from_server_to_client) {  // from server to client
-            ASSERT(msg.file_info.has_value());
-            try {
-                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file(msg.file_info.value(), total_channel_repeats_count);
-            }
-            catch(const transfer_error& ex) {
-                LOG_ERROR("Transfer error: {}. errno = {} ({})", ex.error_message, ex.error_code, strerror(ex.error_code));
-                return;
-            }
-        }
-        else {  // from client to server
-            ASSERT(!msg.file_info.has_value());
-        }
     }
 
 
-    // Create channels
+    //
+    // Create channels (and connect)
+    //
+    size_t total_channel_repeats_count = 0;
     {
         for (const auto& tuple : server_channels) {
             const infra::tcp_sockaddr& addr = std::get<0>(tuple);
@@ -377,6 +342,7 @@ void xcp::client_portal_state::fn_thread_work()
                 chan_addr = addr;  // use IP and port from 'addr'
             }
             LOG_DEBUG("Client portal: server channel {} (repeats: {})", chan_addr.to_string(), repeats);
+            total_channel_repeats_count += repeats;
 
             size_t cnt = 0;
             for (size_t i = 0; i < repeats; ++i) {
@@ -406,28 +372,79 @@ void xcp::client_portal_state::fn_thread_work()
                 }
             }
         }
+        LOG_TRACE("Client portal: server total_channel_repeats_count: {}", total_channel_repeats_count);
     }
 
 
     //
-    // Wait for server ready_to_transfer
+    // Send client transfer request
     //
     {
-        message_server_ready_to_transfer msg;
+        message_client_transfer_request msg;
+        msg.is_from_server_to_client = program_options->is_from_server_to_client;
+        ASSERT(program_options->arg_transfer_block_size.has_value());
+        msg.transfer_block_size = program_options->arg_transfer_block_size.value();
+        if (msg.is_from_server_to_client) {
+            msg.server_path = program_options->arg_from_path.path;
+        }
+        else {  // from client to server
+            msg.server_path = program_options->arg_to_path.path;
+            msg.file_info = this->transfer->get_file_info();
+        }
+
+        if (!message_send(sock, msg)) {
+            LOG_ERROR("Client portal: send message_client_transfer_request failed");
+            return;
+        }
+
+        LOG_TRACE("Client portal: sent message_client_transfer_request to peer {}", connected_remote_endpoint.to_string());
+    }
+
+
+    //
+    // Receive server transfer response
+    //
+    {
+        message_server_transfer_response msg;
         if (!message_recv(sock, msg)) {
-            LOG_ERROR("Client portal: receive message_server_ready_to_transfer failed");
+            LOG_ERROR("Client portal: receive message_server_transfer_response failed");
             return;
         }
 
         if (msg.error_code != 0) {
-            LOG_ERROR("Server responds error: {}. errno = {} ({})", msg.error_message, msg.error_code, strerror(msg.error_code));
+            LOG_ERROR("Server responds an error: {}. errno = {} ({})", msg.error_message, msg.error_code, strerror(msg.error_code));
             return;
         }
-        LOG_DEBUG("Client portal: server is ready to transfer");
+
+        // Init file size if from server to client
+        if (program_options->is_from_server_to_client) {  // from server to client
+            ASSERT(msg.file_info.has_value());
+            try {
+                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file(msg.file_info.value(), total_channel_repeats_count);
+            }
+            catch(const transfer_error& ex) {
+                LOG_ERROR("Transfer error: {}. errno = {} ({})", ex.error_message, ex.error_code, strerror(ex.error_code));
+                return;
+            }
+        }
+        else {  // from client to server
+            ASSERT(!msg.file_info.has_value());
+        }
     }
 
+
+    //
+    // Signals that client portal is ready
+    //
+    gate_client_portal_ready.signal();
+
+
+    //
     // Run transfer
+    //
     {
+        LOG_DEBUG("Client portal: now transfer...");
+
         ASSERT(this->transfer != nullptr);
         const bool success = this->transfer->invoke_portal(sock);
         if (!success) {

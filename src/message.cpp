@@ -96,9 +96,9 @@ namespace xcp
     template bool message_send<_Message_>(std::shared_ptr<infra::os_socket_t> sock, const _Message_& msg); \
     template bool message_recv<_Message_>(std::shared_ptr<infra::os_socket_t> sock, /*out*/ _Message_& msg);
 
-    _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_client_hello_request)
-    _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_server_hello_response)
-    _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_server_ready_to_transfer)
+    _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_server_information)
+    _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_client_transfer_request)
+    _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_server_transfer_response)
     _DECLARE_MESSAGE_SEND_RECV_TEMPLATE(message_transfer_destination_finished)
 
 #undef _DECLARE_MESSAGE_SEND_RECV_TEMPLATE

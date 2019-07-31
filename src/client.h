@@ -48,6 +48,7 @@ namespace xcp
             : program_options(std::move(program_options))
         {
             client_identity.init();
+            gate_client_portal_ready.init(1);
         }
 
         bool init();
@@ -66,6 +67,7 @@ namespace xcp
 
         std::vector<std::shared_ptr<client_channel_state>> channels;
         std::shared_mutex channels_mutex { };
+        infra::gate_guard gate_client_portal_ready { };
 
         std::thread thread_work { };
         infra::tcp_sockaddr connected_remote_endpoint { };

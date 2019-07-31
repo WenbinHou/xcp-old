@@ -188,6 +188,9 @@ namespace xcp
 #endif
 
         ASSERT(_file_info.has_value());
+
+        // For a regular file, its relative_path is the its filename
+        this->_file_info->relative_path = stdfs::path(file_path).filename().u8string();
     }
 
     void transfer_source::dispose_impl() noexcept /*override*/
@@ -359,62 +362,59 @@ namespace xcp
 #endif
     }
 
-    transfer_destination::transfer_destination(const std::string& src_file_name, const std::string& dst_path)
-    {
-        infra::sweeper error_cleanup = [&]() {
-            this->dispose();
-        };
+    transfer_destination::transfer_destination(std::string dst_path)
+        : _requested_dst_path(std::move(dst_path))
+    { }
 
-        stdfs::path dst_real_path = stdfs::weakly_canonical(dst_path);
+    void transfer_destination::init_file(const basic_file_info& file_info, const size_t total_channel_repeats_count)
+    {
+        // Ugly but we can't do this in ctor
+        ASSERT(total_channel_repeats_count > 0);
+        this->_gate_all_channels_finished.init(total_channel_repeats_count);
+
+        ASSERT(!this->_file_info.has_value());
+        this->_file_info = file_info;
+
+        stdfs::path dst_real_path = stdfs::weakly_canonical(_requested_dst_path);
         const stdfs::file_status status = stdfs::status(dst_real_path);
         switch (status.type()) {
             case stdfs::file_type::regular: {
-                _dst_file_path = dst_path;  // TODO: or dst_real_path?
+                _dst_file_path = _requested_dst_path;  // TODO: or dst_real_path?
                 break;
             }
             case stdfs::file_type::directory: {
-                if (src_file_name.empty()) {
-                    throw transfer_error(ENOSYS, "Transfer to a directory without given a file name: " + dst_path);
+                if (file_info.relative_path.empty()) {
+                    throw transfer_error(ENOSYS, "Transfer to a directory without given a file name: " + _requested_dst_path);
                 }
-                _dst_file_path = dst_real_path / src_file_name;
+                _dst_file_path = dst_real_path / _file_info->relative_path;
                 break;
             }
             case stdfs::file_type::not_found: {
-                _dst_file_path = dst_path;  // create a new file
+                _dst_file_path = _requested_dst_path;  // create a new file
                 break;
             }
             case stdfs::file_type::block: {
-                throw transfer_error(ENOSYS, "Transfer to a block device is not supported: " + dst_path);
+                throw transfer_error(ENOSYS, "Transfer to a block device is not supported: " + _requested_dst_path);
             }
             case stdfs::file_type::character: {
-                throw transfer_error(ENOSYS, "Transfer to a character device is not supported: " + dst_path);
+                throw transfer_error(ENOSYS, "Transfer to a character device is not supported: " + _requested_dst_path);
             }
             case stdfs::file_type::fifo: {
-                throw transfer_error(ENOSYS, "Transfer to a FIFO file is not supported: " + dst_path);
+                throw transfer_error(ENOSYS, "Transfer to a FIFO file is not supported: " + _requested_dst_path);
             }
             case stdfs::file_type::socket: {
-                throw transfer_error(ENOSYS, "Transfer to a socket file is not supported: " + dst_path);
+                throw transfer_error(ENOSYS, "Transfer to a socket file is not supported: " + _requested_dst_path);
             }
             case stdfs::file_type::none:
             case stdfs::file_type::symlink:
             case stdfs::file_type::unknown:
             default: {
-                throw transfer_error(ENOSYS, "Unknown file type: " + dst_path);
+                throw transfer_error(ENOSYS, "Unknown file type: " + _requested_dst_path);
             }
         }
 
         LOG_TRACE("Save to destination file: {}", _dst_file_path.string());
 
-        error_cleanup.suppress_sweep();
-    }
-
-    void transfer_destination::init_file(const basic_file_info& file_info, const size_t total_channel_repeats_count)
-    {
-        ASSERT(!this->_file_info.has_value());
-        this->_file_info = file_info;
-
-        ASSERT(total_channel_repeats_count > 0);
-        this->_gate_all_channels_finished.init(total_channel_repeats_count);
 
 #if PLATFORM_WINDOWS
         _file_handle = CreateFileW(

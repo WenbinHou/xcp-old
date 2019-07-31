@@ -84,7 +84,7 @@ namespace xcp
         XCP_DISABLE_COPY_CONSTRUCTOR(transfer_destination)
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_destination)
 
-        transfer_destination(const std::string& src_file_name, const std::string& dst_path);  // throws transfer_error
+        explicit transfer_destination(std::string dst_path);  // throws transfer_error
         void init_file(const basic_file_info& file_info, size_t total_channel_repeats_count);  // throws transfer_error
 
         bool invoke_portal(std::shared_ptr<infra::os_socket_t> sock) override;
@@ -96,7 +96,9 @@ namespace xcp
     private:
         infra::gate_guard _gate_all_channels_finished { };
 
+        const std::string _requested_dst_path;
         stdfs::path _dst_file_path;
+
         void* _dst_file_mapped = nullptr;
 #if PLATFORM_WINDOWS
         HANDLE _file_handle = INVALID_HANDLE_VALUE;

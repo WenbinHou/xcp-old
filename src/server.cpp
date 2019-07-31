@@ -1,5 +1,37 @@
 #include "common.h"
 
+/** 
+
+Server & client protocol version negotiation on portal:
+
+    Step_0:
+        C: Send: magic(8B) role(4B) identity(16B) min_ver(2B) max_ver(2B)
+        S: Send: ver(2B)
+
+
+After that...
+Protocol V1:
+
+    Step_0 (cont.):
+        S: send message_server_information (including channels)
+
+    Step_1:
+        C: receive message_server_information
+        C: (async) connect server channels
+        C: send message_client_transfer_request
+
+    Step_2:
+        S: receive message_client_transfer_request
+        S: If successful, wait for all channels connected
+        S: send back message_server_transfer_response
+        S: call into transfer invoke_portal and invoke_channel
+
+    Step_3:
+        C: receive message_server_transfer_response
+        C: call into transfer invoke_portal and invoke_channel
+*/
+
+
 
 //==============================================================================
 // struct client_instance
@@ -74,35 +106,72 @@ void xcp::client_instance::fn_portal()
     }
 
 
-    // Receive client request
+    //
+    // Send server information (like channels)
+    //
+    {
+        message_server_information msg;
+
+        // Tell client: server channels
+        if (server_portal.program_options->arg_portal->repeats.has_value()) {
+            // Reuse portal as channel
+            ASSERT(server_portal.program_options->arg_portal->repeats.value() > 0);
+            msg.server_channels.emplace_back(
+                server_portal.bound_local_endpoint,
+                server_portal.program_options->arg_portal->repeats.value());
+        }
+        else {
+            // No reuse portal as channel
+            ASSERT(!server_portal.channels.empty());
+        }
+
+        for (const std::shared_ptr<server_channel_state>& chan : server_portal.channels) {
+            ASSERT(chan->required_endpoint.repeats.value() > 0);
+            msg.server_channels.emplace_back(chan->bound_local_endpoint, chan->required_endpoint.repeats.value());
+        }
+
+        if (!message_send(accepted_portal_socket, msg)) {
+            LOG_ERROR("Client #{} portal: send message_server_information failed", this->id);
+            return;
+        }
+
+        LOG_TRACE("Client #{} portal: sent message_server_information");
+    }
+
+
+    //
+    // Receive message_client_transfer_request
+    //
     struct {
         bool is_from_server_to_client { };
-        std::string client_file_name;
         std::string server_path;
         uint64_t transfer_block_size;
         std::optional<basic_file_info> file_info;
     } transfer_request;
     {
-        message_client_hello_request msg;
+        message_client_transfer_request msg;
         if (!message_recv(accepted_portal_socket, msg)) {
-            LOG_ERROR("Client #{} portal: receive message_client_hello_request failed", this->id);
+            LOG_ERROR("Client #{} portal: receive message_client_transfer_request failed", this->id);
             return;
         }
 
-        LOG_TRACE("Client #{} portal: request: is_from_server_to_client={}, client_file_name={}, server_path={}",
-                  this->id, msg.is_from_server_to_client, msg.client_file_name, msg.server_path);
+        LOG_TRACE("Client #{} portal: request: is_from_server_to_client={}, server_path={}",
+                  this->id, msg.is_from_server_to_client, msg.server_path);
 
         transfer_request.is_from_server_to_client = msg.is_from_server_to_client;
-        transfer_request.client_file_name = std::move(msg.client_file_name);
         transfer_request.server_path = std::move(msg.server_path);
-        transfer_request.transfer_block_size = std::move(msg.transfer_block_size);
+        transfer_request.transfer_block_size = msg.transfer_block_size;
         transfer_request.file_info = std::move(msg.file_info);
     }
 
 
-    // Send back server portal information to client, and response to client request
+    //
+    // Initialize transfer
+    //   - If successful, wait for all channels connected
+    // Send back message_server_transfer_response to client
+    //
     {
-        message_server_hello_response msg;
+        message_server_transfer_response msg;
         msg.error_code = 0;
 
         // Check against relative path on server side
@@ -117,14 +186,15 @@ void xcp::client_instance::fn_portal()
             try {
                 if (transfer_request.is_from_server_to_client) {  // from server to client
                     ASSERT(!transfer_request.file_info.has_value());
-                    this->transfer = std::make_shared<transfer_source>(transfer_request.server_path, transfer_request.transfer_block_size);
+                    this->transfer = std::make_shared<transfer_source>(
+                        transfer_request.server_path,
+                        transfer_request.transfer_block_size);
+
                     msg.file_info = this->transfer->get_file_info();
                 }
                 else {  // from client to server
                     ASSERT(transfer_request.file_info.has_value());
-                    this->transfer = std::make_shared<transfer_destination>(
-                        transfer_request.client_file_name,
-                        transfer_request.server_path);
+                    this->transfer = std::make_shared<transfer_destination>(transfer_request.server_path);
                     std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file(
                         transfer_request.file_info.value(),
                         server_portal.program_options->total_channel_repeats_count);
@@ -137,57 +207,48 @@ void xcp::client_instance::fn_portal()
             }
         }
 
-        if (msg.error_code == 0) {  // no error
-            // Tell client: server channels
-            if (server_portal.program_options->arg_portal->repeats.has_value()) {
-                // Reuse portal as channel
-                ASSERT(server_portal.program_options->arg_portal->repeats.value() > 0);
-                msg.server_channels.emplace_back(
-                    server_portal.bound_local_endpoint,
-                    server_portal.program_options->arg_portal->repeats.value());
-            }
-            else {
-                ASSERT(!server_portal.channels.empty());
-            }
-
-            for (const std::shared_ptr<xcp::server_channel_state>& chan : server_portal.channels) {
-                msg.server_channels.emplace_back(chan->bound_local_endpoint, chan->required_endpoint.repeats.value());
+        // If successful, wait for all channels connected
+        if (msg.error_code == 0) {
+            gate_all_channel_repeats_connected.wait();
+            if (is_dispose_required()) {  // unlikely
+                LOG_TRACE("Client #{} portal: dispose() required", this->id);
+                return;
             }
         }
 
         if (!message_send(accepted_portal_socket, msg)) {
-            LOG_ERROR("Client #{} portal: send message_server_hello_response failed", this->id);
+            LOG_ERROR("Client #{} portal: send message_server_transfer_response failed", this->id);
             return;
         }
 
-        LOG_TRACE("Client #{} portal: response: error_code={}, server_channels.size()={}",
-                  this->id, msg.error_code, msg.server_channels.size());
+        if (msg.error_code == 0) {
+            LOG_TRACE("Client #{} portal: sent message_server_transfer_response", this->id);
+        }
+        else {
+            LOG_ERROR("Client #{} portal: sent message_server_transfer_response, error_code={}, error_message={}",
+                      this->id, msg.error_code, msg.error_message);
+            return;
+        }
     }
 
-    // Wait for all channel repeats are connected
-    {
-        gate_all_channel_repeats_connected.wait();
-        if (is_dispose_required()) {  // unlikely
-            LOG_TRACE("Client #{} portal: dispose() required", this->id);
-            return;
-        }
 
-        message_server_ready_to_transfer msg;
-        msg.error_code = 0;
-        if (!message_send(accepted_portal_socket, msg)) {
-            LOG_ERROR("Client #{} portal: send message_server_ready_to_transfer failed", this->id);
-            return;
-        }
-        LOG_TRACE("Client #{} portal: now ready to transfer", this->id);
-    }
+    //
+    // Signals portal is ready to transfer
+    //
+    gate_portal_ready_to_transfer.signal();
 
+
+    //
     // Run transfer
+    //
     {
         const bool success = this->transfer->invoke_portal(accepted_portal_socket);
         if (!success) {
             LOG_ERROR("Client #{} portal: transfer failed", this->id);
         }
     }
+
+    // exit_cleanup dtor do cleanups...
 }
 
 void xcp::client_instance::fn_channel(std::shared_ptr<infra::os_socket_t> accepted_channel_socket)
@@ -196,10 +257,16 @@ void xcp::client_instance::fn_channel(std::shared_ptr<infra::os_socket_t> accept
         this->async_dispose(false);
     };
 
-    LOG_TRACE("Client #{} channel: channel initialization done", this->id);
-
     // Signal one channel connection is established
     gate_all_channel_repeats_connected.signal();
+
+    // Wait for portal to be ready to transfer
+    gate_portal_ready_to_transfer.wait();
+    if (is_dispose_required()) {  // unlikely
+        LOG_DEBUG("Client #{} channel: dispose() required", this->id);
+        return;
+    }
+    LOG_TRACE("Client #{} channel: channel initialization done", this->id);
 
     // Run transfer
     {
@@ -700,5 +767,3 @@ void xcp::server_portal_state::fn_thread_unified_accepted_socket(
 
     PANIC_TERMINATE("Unknown role should have been rejected: 0x{:08x}", role);
 }
-
-#include <utility>
