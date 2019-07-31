@@ -51,11 +51,17 @@ namespace infra
         }
 
         [[nodiscard]]
-        bool can_pass()
+        bool can_pass() noexcept
         {
             ASSERT(_at_least_signal != INVALID_SIGNAL_COUNT);
 
             return (_curr_signal_count >= _at_least_signal);
+        }
+
+        [[nodiscard]]
+        bool initialized() noexcept
+        {
+            return (_at_least_signal != INVALID_SIGNAL_COUNT);
         }
 
     private:

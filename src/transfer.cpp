@@ -372,6 +372,10 @@ namespace xcp
 #else
 #   error "Unknown platform"
 #endif
+
+        if (_gate_all_channels_finished.initialized()) {
+            _gate_all_channels_finished.force_signal_all();
+        }
     }
 
     transfer_destination::transfer_destination(std::string dst_path)

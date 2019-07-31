@@ -235,9 +235,18 @@ void xcp::client_portal_state::dispose_impl() noexcept
         sock.reset();
     }
 
-    // Let connected channels not block
-    gate_client_portal_ready.force_signal_all();
+    // Close transfer file handles (if any)
+    if (this->transfer) {
+        this->transfer->dispose();
+        this->transfer.reset();
+    }
 
+    // Let connected channels not block
+    if (gate_client_portal_ready.initialized()) {
+        gate_client_portal_ready.force_signal_all();
+    }
+
+    // Wait for portal thread done
     if (thread_work.joinable()) {
         thread_work.join();
     }
@@ -247,12 +256,6 @@ void xcp::client_portal_state::dispose_impl() noexcept
         chan->dispose();
     }
     channels.clear();
-
-    // Close transfer file handles (if any)
-    if (this->transfer) {
-        this->transfer->dispose();
-        this->transfer.reset();
-    }
 }
 
 void xcp::client_portal_state::fn_thread_work()

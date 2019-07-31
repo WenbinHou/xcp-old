@@ -289,9 +289,23 @@ void xcp::client_instance::dispose_impl() noexcept /*override*/
         accepted_portal_socket.reset();
     }
 
-    // gate_all_channel_repeats_connected: allow portal_thread to go on
-    gate_all_channel_repeats_connected.force_signal_all();
+    // gate_all_channel_repeats_connected: allow portal thread to go on
+    if (gate_all_channel_repeats_connected.initialized()) {
+        gate_all_channel_repeats_connected.force_signal_all();
+    }
 
+    // gate_portal_ready_to_transfer: allow channel threads to go on
+    if (gate_portal_ready_to_transfer.initialized()) {
+        gate_portal_ready_to_transfer.force_signal_all();
+    }
+
+    // Close transfer file handles (if any)
+    if (this->transfer) {
+        this->transfer->dispose();
+        this->transfer.reset();
+    }
+
+    // Wait for portal thread done
     if (portal_thread) {
         ASSERT(portal_thread->joinable());
         portal_thread->join();
@@ -316,11 +330,6 @@ void xcp::client_instance::dispose_impl() noexcept /*override*/
         channel_threads.clear();
     }
 
-    // Close transfer file handles (if any)
-    if (this->transfer) {
-        this->transfer->dispose();
-        this->transfer.reset();
-    }
 
     // Remove itself from server_portal_state.clients
     //
