@@ -80,6 +80,15 @@ namespace xcp
         static constexpr const int TRANSFER_UNKNOWN = 0;  // early stopped before setting a status value
         static constexpr const int TRANSFER_FAILED = 1;
         static constexpr const int TRANSFER_SUCCEEDED = 2;
+
+    private:
+        struct _report_progress_context_t {
+            std::atomic_bool busy;
+            volatile uint64_t first_msec;
+            volatile uint64_t first_transferred;
+            volatile uint64_t last_msec;
+        };
+        _report_progress_context_t _report_progress_context { };
     };
 
 }  // namespace xcp

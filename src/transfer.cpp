@@ -110,6 +110,13 @@ namespace xcp
             }
 
             LOG_TRACE("Channel: sent file block: offset = {}, block_size = {}", curr, block_size);
+
+
+            // Callback: report progress
+            const uint64_t transferred_size = (_transferred_size += block_size);
+            if (report_progress_callback != nullptr) {
+                report_progress_callback(transferred_size, this->_file_info->file_size);
+            }
         }
 
 
@@ -322,9 +329,14 @@ namespace xcp
                     LOG_ERROR("Channel: recv() file block at offset={}, block_size={} failed", offset, block_size);
                     return false;
                 }
+                LOG_TRACE("Channel: received file block: offset = {}, block_size = {}", offset, block_size);
             }
 
-            LOG_TRACE("Channel: received file block: offset = {}, block_size = {}", offset, block_size);
+            // Callback: report progress
+            const uint64_t transferred_size = (_transferred_size += block_size);
+            if (report_progress_callback != nullptr) {
+                report_progress_callback(transferred_size, this->_file_info->file_size);
+            }
         }
 
         return true;

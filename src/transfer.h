@@ -41,7 +41,12 @@ namespace xcp
             _file_info.reset();
         }
 
+    public:
+        // NOTE: report_progress_callback might be called by multiple threads concurrently
+        std::function<void(uint64_t /*transferred*/, uint64_t /*total*/)> report_progress_callback { nullptr };
+
     protected:
+        std::atomic_uint64_t _transferred_size { 0 };
         std::optional<basic_file_info> _file_info { };  // both for source and destination
     };
 

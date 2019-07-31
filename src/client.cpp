@@ -421,6 +421,42 @@ void xcp::client_portal_state::fn_thread_work()
 
 
     //
+    // Setup report_progress_callback
+    //
+    _report_progress_context.busy = false;
+    _report_progress_context.first_msec = 0;  // to be filled later
+    _report_progress_context.first_transferred = 0;  // to be filled later
+    _report_progress_context.last_msec = (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())).count();;
+
+    this->transfer->report_progress_callback = [this](const uint64_t transferred, const uint64_t total) mutable {
+        bool expected_busy = false;
+        if (!_report_progress_context.busy.compare_exchange_strong(expected_busy, true)) return;  // skip this one
+
+        do {
+            const uint64_t now_msec = (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())).count();
+            if (_report_progress_context.first_msec == 0) {
+                if ((int64_t)(now_msec - _report_progress_context.last_msec) < 3000) {  // skip first 3 seconds
+                    break;
+                }
+                _report_progress_context.first_msec = now_msec;
+                _report_progress_context.first_transferred = transferred;
+            }
+            else {
+                if ((int64_t)(now_msec - _report_progress_context.last_msec) < 1000) {  // too frequent!
+                    break;
+                }
+                LOG_INFO("... {:.3f} MB / {:.3f} MB ({:.3f} MB/s)",
+                         (double)transferred / (double)1048576,
+                         (double)total / (double)1048576,
+                         (double)((transferred - _report_progress_context.first_transferred) * 1000) / (double)((now_msec - _report_progress_context.first_msec) * 1048576));
+            }
+            _report_progress_context.last_msec = now_msec;
+        } while(false);
+
+        _report_progress_context.busy = false;
+    };
+
+    //
     // Signals that client portal is ready
     //
     gate_client_portal_ready.signal();
