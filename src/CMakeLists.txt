@@ -5,7 +5,6 @@ add_executable(xcp
     #-------- common source files --------
     "${CMAKE_CURRENT_LIST_DIR}/infra/network.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/program_options.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/message.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/transfer.cpp"
 
     #-------- xcp unique source files --------
@@ -20,7 +19,6 @@ add_executable(xcpd
     #-------- common source files --------
     "${CMAKE_CURRENT_LIST_DIR}/infra/network.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/program_options.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/message.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/transfer.cpp"
 
     #-------- xcpd unique source files --------
