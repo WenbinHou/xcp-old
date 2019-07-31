@@ -88,7 +88,61 @@ namespace infra
         [[nodiscard]]
         bool is_addr_any() const noexcept;
 
-        XCP_DEFAULT_SERIALIZATION(cereal::binary_data(_data, sizeof(_data)))
+
+        //
+        // For serialization
+        //
+        template<class Archive>
+        void save(Archive& archive) const {
+            if (family() == AF_INET) {
+                const family_enum fam = family_enum::IPV4;
+                archive(fam,
+                        this->addr_ipv4().sin_port,
+                        this->addr_ipv4().sin_addr.s_addr);
+            }
+            else if (family() == AF_INET6) {
+                const family_enum fam = family_enum::IPV6;
+                static_assert(sizeof(this->addr_ipv6().sin6_addr) == 16);  // IPv6 address: 16 byte
+                archive(fam,
+                        this->addr_ipv6().sin6_port,
+                        this->addr_ipv6().sin6_flowinfo,
+                        cereal::binary_data(&this->addr_ipv6().sin6_addr, sizeof(this->addr_ipv6().sin6_addr)),
+                        this->addr_ipv6().sin6_scope_id);
+            }
+            else {
+                PANIC_TERMINATE("Unknown family: {}", family());
+            }
+        }
+
+        template<class Archive>
+        void load(Archive& archive) {
+            memset(_data, 0x00, sizeof(_data));
+
+            family_enum fam = family_enum::UNKNOWN;
+            archive(fam);
+            if (fam == family_enum::IPV4) {
+                this->addr_ipv4().sin_family = AF_INET;
+                archive(this->addr_ipv4().sin_port,
+                        this->addr_ipv4().sin_addr.s_addr);
+            }
+            if (fam == family_enum::IPV6) {
+                this->addr_ipv6().sin6_family = AF_INET6;
+                archive(this->addr_ipv6().sin6_port,
+                        this->addr_ipv6().sin6_flowinfo,
+                        cereal::binary_data(&this->addr_ipv6().sin6_addr, sizeof(this->addr_ipv6().sin6_addr)),
+                        this->addr_ipv6().sin6_scope_id);
+            }
+            else {
+                PANIC_TERMINATE("Unknown family_enum: {}", (uint32_t)fam);
+            }
+        }
+
+    private:
+        enum class family_enum : uint32_t {
+            UNKNOWN = 0,
+            IPV4 = 1,
+            IPV6 = 2,
+        };
     };
 
 
