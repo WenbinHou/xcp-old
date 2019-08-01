@@ -188,18 +188,18 @@ bool xcp::xcp_program_options::post_process()
     //----------------------------------------------------------------
     if (arg_from_path.is_remote()) {
         ASSERT(arg_from_path.host.has_value());
-        LOG_INFO("Copy from remote host {} path {}", arg_from_path.host.value(), arg_from_path.path);
+        LOG_DEBUG("Copy from remote host {} path {}", arg_from_path.host.value(), arg_from_path.path);
     }
     else {
-        LOG_INFO("Copy from local path {}", arg_from_path.path);
+        LOG_DEBUG("Copy from local path {}", arg_from_path.path);
     }
 
     if (arg_to_path.is_remote()) {
         ASSERT(arg_to_path.host.has_value());
-        LOG_INFO("Copy to remote host {} path {}", arg_to_path.host.value(), arg_to_path.path);
+        LOG_DEBUG("Copy to remote host {} path {}", arg_to_path.host.value(), arg_to_path.path);
     }
     else {
-        LOG_INFO("Copy to local path {}", arg_to_path.path);
+        LOG_DEBUG("Copy to local path {}", arg_to_path.path);
     }
 
 
@@ -236,7 +236,7 @@ bool xcp::xcp_program_options::post_process()
     server_portal.port = arg_port.value();
 
 
-    LOG_INFO("Server portal: {}", server_portal.to_string());
+    LOG_DEBUG("Server portal: {}", server_portal.to_string());
     if (!server_portal.resolve()) {
         LOG_ERROR("Can't resolve specified server portal: {}", server_portal.to_string());
         return false;

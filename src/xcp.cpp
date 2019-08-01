@@ -53,7 +53,7 @@ int main(int argc, char* argv[])
             success = (client_portal->transfer_result_status == xcp::client_portal_state::TRANSFER_SUCCEEDED);
             client_portal.reset();
 
-            LOG_INFO("Bye!");
+            LOG_DEBUG("Bye!");
         };
 
         if (!client_portal->init()) {

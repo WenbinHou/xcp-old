@@ -230,7 +230,7 @@ bool xcp::client_portal_state::init()
 void xcp::client_portal_state::dispose_impl() noexcept
 {
     if (sock) {
-        LOG_INFO("Close server portal {} (peer: {})", program_options->server_portal.to_string(), connected_remote_endpoint.to_string());
+        LOG_DEBUG("Close server portal {} (peer: {})", program_options->server_portal.to_string(), connected_remote_endpoint.to_string());
         sock->dispose();
         sock.reset();
     }
