@@ -379,6 +379,7 @@ void xcp::client_portal_state::fn_thread_work()
         msg.is_from_server_to_client = program_options->is_from_server_to_client;
         ASSERT(program_options->arg_transfer_block_size.has_value());
         msg.transfer_block_size = program_options->arg_transfer_block_size.value();
+        msg.user = program_options->server_user;
         if (msg.is_from_server_to_client) {
             msg.server_path = program_options->arg_from_path.path;
         }
@@ -392,7 +393,9 @@ void xcp::client_portal_state::fn_thread_work()
             return;
         }
 
-        LOG_TRACE("Client portal: sent message_client_transfer_request to peer {}", connected_remote_endpoint.to_string());
+        LOG_TRACE("Client portal: sent message_client_transfer_request to peer {}: "
+                  "is_from_server_to_client={}, msg.transfer_block_size={}, user={}",
+                  connected_remote_endpoint.to_string(), msg.is_from_server_to_client, msg.transfer_block_size, msg.user.to_string());
     }
 
 

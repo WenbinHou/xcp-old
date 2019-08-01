@@ -40,7 +40,7 @@ bool xcp::host_path::parse(const std::string& value)
         const std::string re_valid_hostname = R"((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*(?:[A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])))";
         const std::string re_valid_ipv6 = R"((?:\[(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|::(?:[Ff]{4}(?::0{1,4})?:)?(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9]))\]))";
         const std::string re_valid_host = "(?:" + re_valid_hostname + "|" + re_valid_ipv6 + ")";
-        const std::string re_valid_host_path = "^(?:(" + re_valid_host + "):)?(.+)$";
+        const std::string re_valid_host_path = "^(?:(?:([^@:]+)@)?(" + re_valid_host + "):)?(.+)$";
         __re = new std::regex(re_valid_host_path, std::regex::optimize);
     }
 
@@ -53,6 +53,7 @@ bool xcp::host_path::parse(const std::string& value)
     if (value.size() >= 2 && value[1] == ':') {
         if ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) {
             if (value.size() == 2 || value[2] == '/' || value[2] == '\\') {
+                user.reset();
                 host.reset();
                 path = value;
                 return true;
@@ -71,15 +72,25 @@ bool xcp::host_path::parse(const std::string& value)
     }
 
     {
-        // NOTE: If host is IPv6 surrounded by '[' ']', DO NOT trim the beginning '[' and ending ']'
+        // The user part
         std::string tmp(match[1].str());
+        if (tmp.empty())
+            user.reset();
+        else
+            user= std::move(tmp);
+    }
+
+    {
+        // The host part
+        // NOTE: If host is IPv6 surrounded by '[' ']', DO NOT trim the beginning '[' and ending ']'
+        std::string tmp(match[2].str());
         if (tmp.empty())
             host.reset();
         else
             host = std::move(tmp);
     }
 
-    path = match[2].str();
+    path = match[3].str();
     if (path.empty()) return false;
 
     return true;
@@ -151,6 +162,12 @@ void xcp::xcp_program_options::add_options(CLI::App& app)
         "Copy to this path");
     opt_to->type_name("<to>");
     opt_to->required();
+
+    CLI::Option* opt_user = app.add_option(
+        "-u,--user",
+        this->arg_user,
+        "Relative to this user's home directory on server side");
+    opt_user->type_name("<user>");
 
     CLI::Option* opt_block = app.add_option(
         "-B,--block",
@@ -229,6 +246,45 @@ bool xcp::xcp_program_options::post_process()
             LOG_DEBUG("  Candidate server portal endpoint: {}", addr.to_string());
         }
     }
+
+
+    //----------------------------------------------------------------
+    // arg_user
+    //----------------------------------------------------------------
+    bool got_user = false;
+    if (arg_user.has_value()) {
+        server_user.user_name = arg_user.value();
+        got_user = true;
+    }
+    else {
+        if (arg_from_path.is_remote()) {
+            ASSERT(is_from_server_to_client);
+            if (arg_from_path.user.has_value()) {
+                server_user.user_name = arg_from_path.user.value();
+                got_user = true;
+            }
+        }
+        else if (arg_to_path.is_remote()) {
+            ASSERT(!is_from_server_to_client);
+            if (arg_to_path.user.has_value()) {
+                server_user.user_name = arg_to_path.user.value();
+                got_user = true;
+            }
+        }
+    }
+    if (!got_user) {
+        if (infra::get_user_name(server_user)) {
+            got_user = true;
+        }
+    }
+    if (got_user) {
+        LOG_TRACE("Use this user for server side: {}", server_user.to_string());
+    }
+    else {
+        server_user = { };
+        LOG_WARN("Can't get user. Use no user for server side");
+    }
+
 
     //----------------------------------------------------------------
     // arg_transfer_block_size

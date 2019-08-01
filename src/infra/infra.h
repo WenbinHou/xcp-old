@@ -16,6 +16,7 @@
 #include "sighandle.h"
 
 #include "network.h"
+#include "user.h"
 
 
 

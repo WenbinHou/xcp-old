@@ -33,16 +33,20 @@
 #   endif  // !defined(_WIN32_WINNT)
 
 #   if !defined(NOMINMAX)
-#       define NOMINMAX 1
+#       define NOMINMAX
 #   endif  // !defined(NOMINMAX)
 
 //  Disable pedantic warnings on MSVC
 #   if !defined(_CRT_SECURE_NO_WARNINGS)
-#       define _CRT_SECURE_NO_WARNINGS 1
+#       define _CRT_SECURE_NO_WARNINGS
 #   endif  // !defined(_CRT_SECURE_NO_WARNINGS)
 #   if !defined(_CRT_NONSTDC_NO_WARNINGS)
-#       define _CRT_NONSTDC_NO_WARNINGS 1
+#       define _CRT_NONSTDC_NO_WARNINGS
 #   endif  // !defined(_CRT_NONSTDC_NO_WARNINGS)
+
+#   if !defined(SECURITY_WIN32)
+#       define SECURITY_WIN32
+#   endif  // !defined(SECURITY_WIN32)
 
 #elif PLATFORM_LINUX
 
@@ -66,6 +70,9 @@
 #   include <mswsock.h>
 
 #   include <windows.h>
+#   include <security.h>
+#   include <secext.h>
+#   include <sddl.h>
 #   include <shlwapi.h>
 #   include <shlobj.h>
 #   include <aclapi.h>
@@ -97,13 +104,14 @@
 #   include <sys/uio.h>
 #   include <sys/wait.h>
 #   include <arpa/inet.h>
+#   include <netdb.h>
 #   include <netinet/tcp.h>
 #   include <fcntl.h>
+#   include <pwd.h>
 #   include <unistd.h>
 #   include <semaphore.h>
 #   include <strings.h>
 #   include <syscall.h>
-#   include <netdb.h>
 
 #else
 #   error "Unknown platform"

@@ -147,6 +147,7 @@ void xcp::client_instance::fn_portal()
         std::string server_path;
         uint64_t transfer_block_size;
         std::optional<basic_file_info> file_info;
+        infra::user_name_t user;
     } transfer_request;
     {
         message_client_transfer_request msg;
@@ -155,12 +156,13 @@ void xcp::client_instance::fn_portal()
             return;
         }
 
-        LOG_TRACE("Client #{} portal: request: is_from_server_to_client={}, server_path={}",
-                  this->id, msg.is_from_server_to_client, msg.server_path);
+        LOG_TRACE("Client #{} portal: request: is_from_server_to_client={}, server_path={}, user={}",
+                  this->id, msg.is_from_server_to_client, msg.server_path, msg.user.to_string());
 
         transfer_request.is_from_server_to_client = msg.is_from_server_to_client;
         transfer_request.server_path = std::move(msg.server_path);
         transfer_request.transfer_block_size = msg.transfer_block_size;
+        transfer_request.user = std::move(msg.user);
         transfer_request.file_info = std::move(msg.file_info);
     }
 
@@ -176,10 +178,30 @@ void xcp::client_instance::fn_portal()
 
         // Check against relative path on server side
         if (stdfs::path(transfer_request.server_path).is_relative()) {
-            LOG_ERROR("Client #{} portal: server side path {} should not be relative path",
-                      this->id, transfer_request.server_path);
-            msg.error_code = EINVAL;
-            msg.error_message = "Server side path is relative: " + transfer_request.server_path;
+            // Get home directory for requested user
+            stdfs::path home_path = infra::get_user_home_path(transfer_request.user);
+            if (home_path.empty()) {
+                msg.error_code = EINVAL;
+                msg.error_message = "Server side path is relative, but home path for requested user " + transfer_request.user.to_string() +
+                                    " is not found";
+                LOG_ERROR("Client #{} portal: {}", this->id, msg.error_message);
+            }
+            else if (stdfs::status(home_path).type() != stdfs::file_type::directory) {
+                msg.error_code = EINVAL;
+                msg.error_message = "Server side path is relative, but home path for requested user " + transfer_request.user.to_string() +
+                                    " is not found or not a directory: " + home_path.u8string();
+                LOG_ERROR("Client #{} portal: {}", this->id, msg.error_message);
+            }
+            else {  // found home path
+                std::string tmp = transfer_request.server_path;
+                if (tmp.size() >= 2 && tmp[0] == '~' && (tmp[1] == '/' || tmp[1] == '\\')) {
+                    tmp = tmp.substr(2);
+                }
+                std::string new_server_path = (home_path / tmp).u8string();
+                LOG_DEBUG("Client #{} portal: server side path {} resolves to {}",
+                          this->id, transfer_request.server_path, new_server_path);
+                transfer_request.server_path = new_server_path;
+            }
         }
 
         if (msg.error_code == 0) {

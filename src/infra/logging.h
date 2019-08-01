@@ -81,7 +81,9 @@ namespace infra
     template<typename TIntOrDword>
     inline const char* str_getlasterror(TIntOrDword const gle)
     {
-        static_assert(std::is_same_v<TIntOrDword, int> || std::is_same_v<TIntOrDword, DWORD>);
+        static_assert(std::is_same_v<TIntOrDword, int> ||
+                      std::is_same_v<TIntOrDword, DWORD> ||
+                      std::is_same_v<TIntOrDword, LSTATUS>);
 
         {
             std::shared_lock<std::shared_mutex> lock(details::g_getlasterror_message_mutex);

@@ -30,6 +30,10 @@ int main(int argc, char* argv[])
     // Initialize signal handler
     infra::sighandle::setup_signal_handler();
 
+    // temp test
+    infra::user_name_t user;
+    infra::get_user_name(user);
+    infra::get_user_home_path(user);
 
     std::shared_ptr<xcp::client_portal_state> client_portal = std::make_shared<xcp::client_portal_state>(options);
     bool success = false;

@@ -45,6 +45,7 @@ namespace xcp
         }
 
     public:
+        std::optional<std::string> user { };
         std::optional<std::string> host { };
         std::string path { };
     };
@@ -78,9 +79,11 @@ namespace xcp
         host_path arg_from_path;
         host_path arg_to_path;
         std::optional<uint64_t> arg_transfer_block_size { };
+        std::optional<std::string> arg_user { };
 
         bool is_from_server_to_client;
         infra::tcp_endpoint server_portal;
+        infra::user_name_t server_user { };
 
     public:
         void add_options(CLI::App& app) override;
