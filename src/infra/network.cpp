@@ -365,6 +365,9 @@ bool infra::os_socket_t::bind(const infra::tcp_sockaddr& addr, /*out*/ infra::tc
 {
     ASSERT(_sock != INVALID_SOCKET_VALUE);
 
+    // Enable dual stack on IPv6
+    enable_dual_stack_if_inet6(addr.family());
+
     // Bind to specified endpoint
     if (::bind(_sock, addr.address(), addr.socklen()) != 0) {
         LOG_ERROR("bind() to {} failed. {}", addr.to_string(), error_description());
@@ -437,6 +440,9 @@ std::shared_ptr<infra::os_socket_t> infra::os_socket_t::accept(/*out,opt*/ tcp_s
 bool infra::os_socket_t::connect(const tcp_sockaddr& addr, tcp_sockaddr* local_addr, tcp_sockaddr* remote_addr)
 {
     ASSERT(_sock != INVALID_SOCKET_VALUE);
+
+    // Enable dual stack on IPv6
+    enable_dual_stack_if_inet6(addr.family());
 
     // Connect to specified endpoint
     if (::connect(_sock, addr.address(), addr.socklen()) != 0) {
@@ -557,6 +563,22 @@ bool infra::os_socket_t::recv(void* const ptr, const uint32_t size)
     }
 
     return true;
+}
+
+void infra::os_socket_t::enable_dual_stack_if_inet6(const uint16_t family)
+{
+    // If not IPv6, do nothing
+    if (family != AF_INET6) {
+        return;
+    }
+
+    //
+    // Enable dual stack for IPv6 & IPv4
+    //
+    const int value_0 = 0;
+    if (setsockopt(_sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&value_0, sizeof(value_0)) != 0) {
+        LOG_WARN("setsockopt(IPV6_V6ONLY) to 0 failed. {}", error_description());
+    }
 }
 
 bool infra::os_socket_t::internal_sendv(const void* const vec, const uint32_t vec_count, const uint64_t expected_written)

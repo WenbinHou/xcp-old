@@ -295,6 +295,7 @@ namespace infra
 #endif
 
     private:
+        void enable_dual_stack_if_inet6(uint16_t family);
         bool internal_sendv(const void* vec, uint32_t vec_count, uint64_t expected_written);
         void non_thread_safe_close() noexcept;
 
