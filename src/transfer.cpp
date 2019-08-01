@@ -321,7 +321,11 @@ namespace xcp
                 break;
             }
 
-            ASSERT(_dst_file_mapped != nullptr);
+            // This instance might have been disposed here.
+            if (_dst_file_mapped == nullptr) {
+                ASSERT(this->is_dispose_required());
+                return false;
+            }
 
             // Receive body
             {
