@@ -314,7 +314,9 @@ void xcp::client_instance::dispose_impl() noexcept /*override*/
 
     // Wait for all channel threads to exit...
     {
-        std::unique_lock<std::shared_mutex> lock(channel_threads_mutex);
+        std::unique_lock<std::shared_mutex> lock(_rundown.acquire_rundown());
+        ASSERT(_rundown.required_rundown());
+
         for (std::pair<std::shared_ptr<infra::os_socket_t>, std::shared_ptr<std::thread>>& pair : channel_threads) {
             if (pair.first) {
                 pair.first->dispose();
@@ -755,10 +757,9 @@ void xcp::server_portal_state::fn_thread_unified_accepted_socket(
 
             // Add current thread to client channel_threads
             {
-                std::unique_lock<std::shared_mutex> lock(client->channel_threads_mutex);
-                if (client->is_dispose_required()) {  // unlikely
-                    lock.unlock();
-
+                std::unique_lock<std::shared_mutex> lock(client->_rundown.acquire_unique());
+                if (!lock.owns_lock()) {  // unlikely
+                    ASSERT(client->_rundown.required_rundown());
                     LOG_ERROR("Server channel: client instance has required dispose()");
                     return;
                 }

@@ -65,8 +65,8 @@ namespace xcp
 
         uint16_t protocol_version = portal_protocol::version::INVALID;
 
+        infra::rundown_protection rundown { };
         std::vector<std::shared_ptr<client_channel_state>> channels;
-        std::shared_mutex channels_mutex { };
         infra::gate_guard gate_client_portal_ready { };
 
         std::thread thread_work { };

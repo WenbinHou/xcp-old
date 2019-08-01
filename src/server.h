@@ -41,6 +41,8 @@ namespace xcp
         ~client_instance() noexcept override final { this->async_dispose(true); }
 
     public:
+        infra::rundown_protection _rundown { };
+
         server_portal_state& server_portal;
 
         infra::tcp_sockaddr peer_endpoint;
@@ -52,7 +54,6 @@ namespace xcp
         uint16_t protocol_version = portal_protocol::version::INVALID;
 
         std::vector<std::pair<std::shared_ptr<infra::os_socket_t>, std::shared_ptr<std::thread>>> channel_threads;
-        std::shared_mutex channel_threads_mutex;
 
         const std::size_t total_channel_repeats_count;
         infra::gate_guard gate_all_channel_repeats_connected { };

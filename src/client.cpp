@@ -252,10 +252,15 @@ void xcp::client_portal_state::dispose_impl() noexcept
     }
 
     // Dispose all channels
-    for (std::shared_ptr<client_channel_state>& chan : channels) {
-        chan->dispose();
+    {
+        std::unique_lock<std::shared_mutex> lock(rundown.acquire_rundown());
+        ASSERT(rundown.required_rundown());
+
+        for (std::shared_ptr<client_channel_state>& chan : channels) {
+            chan->dispose();
+        }
+        channels.clear();
     }
-    channels.clear();
 }
 
 void xcp::client_portal_state::fn_thread_work()
@@ -347,13 +352,13 @@ void xcp::client_portal_state::fn_thread_work()
                 }
 
                 {
-                    std::unique_lock<std::shared_mutex> lock(channels_mutex);
-                    if (this->is_dispose_required()) {  // unlikely
-                        lock.unlock();
+                    std::unique_lock<std::shared_mutex> lock(rundown.acquire_unique());
+                    if (!lock.owns_lock()) {  // unlikely
+                        ASSERT(rundown.required_rundown());
+
                         chan->dispose();
                         chan.reset();
 
-                        this->async_dispose(false);
                         return;
                     }
                     else {

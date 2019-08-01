@@ -11,6 +11,7 @@
 
 #include "semaphore.h"
 #include "manual_reset_event.h"
+#include "rundown_protection.h"
 #include "gate_guard.h"
 #include "sighandle.h"
 
