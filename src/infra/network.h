@@ -125,7 +125,7 @@ namespace infra
                 archive(this->addr_ipv4().sin_port,
                         this->addr_ipv4().sin_addr.s_addr);
             }
-            if (fam == family_enum::IPV6) {
+            else if (fam == family_enum::IPV6) {
                 this->addr_ipv6().sin6_family = AF_INET6;
                 archive(this->addr_ipv6().sin6_port,
                         this->addr_ipv6().sin6_flowinfo,
