@@ -30,6 +30,7 @@ Options:
   -q,--quiet                  Be more quiet
   -v,--verbose                Be more verbose
   -P,--port <port>            Server portal port to connect to
+  -u,--user <user>            Relative to this user's home directory on server side
   -B,--block <size>:SIZE [b, kb(=1024b), ...]
                               Transfer block size
 ````
