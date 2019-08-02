@@ -30,15 +30,15 @@ namespace xcp
         virtual bool invoke_portal(std::shared_ptr<infra::os_socket_t> sock) = 0;
         virtual bool invoke_channel(std::shared_ptr<infra::os_socket_t> sock) = 0;
 
-        const basic_file_info& get_file_info() const noexcept
+        const basic_transfer_info& get_transfer_info() const noexcept
         {
-            ASSERT(_file_info.has_value());
-            return _file_info.value();
+            ASSERT(_info.has_value());
+            return _info.value();
         }
 
         virtual ~transfer_base() noexcept
         {
-            _file_info.reset();
+            _info.reset();
         }
 
     public:
@@ -47,7 +47,9 @@ namespace xcp
 
     protected:
         std::atomic_uint64_t _transferred_size { 0 };
-        std::optional<basic_file_info> _file_info { };  // both for source and destination
+        uint64_t _total_size { 0 };
+
+        std::optional<basic_transfer_info> _info { };  // both for source and destination
     };
 
     struct transfer_source : transfer_base
@@ -64,7 +66,56 @@ namespace xcp
         ~transfer_source() noexcept override final { this->async_dispose(true); }
 
     private:
-        void prepare_transfer_regular_file(const stdfs::path& file_path);
+        struct send_file_context
+        {
+        public:
+            XCP_DISABLE_COPY_CONSTRUCTOR(send_file_context)
+            XCP_DEFAULT_MOVE_ASSIGN(send_file_context)
+            send_file_context() = default;
+            send_file_context(send_file_context&& other) noexcept
+            {
+                this->curr_offset = other.curr_offset.load();
+                other.curr_offset = 0;
+
+                if (this->file_handle != INVALID_FILE_HANDLE) this->close_handle();
+                this->file_handle = other.file_handle;
+                other.file_handle = INVALID_FILE_HANDLE;
+            }
+
+            void close_handle() noexcept
+            {
+#if PLATFORM_WINDOWS
+                if (this->file_handle != INVALID_FILE_HANDLE) {
+                    (void)CloseHandle(this->file_handle);
+                    this->file_handle = INVALID_FILE_HANDLE;
+                }
+#elif PLATFORM_LINUX
+                if (this->file_handle != INVALID_FILE_HANDLE) {
+                    (void)close(this->file_handle);
+                    this->file_handle = INVALID_FILE_HANDLE;
+                }
+#else
+#   error "Unknown platform"
+#endif
+            }
+
+        public:
+            std::atomic_uint64_t curr_offset = 0;
+#if PLATFORM_WINDOWS
+            static constexpr const HANDLE INVALID_FILE_HANDLE = INVALID_HANDLE_VALUE;
+            HANDLE file_handle = INVALID_HANDLE_VALUE;
+#elif PLATFORM_LINUX
+            static constexpr const int INVALID_FILE_HANDLE = -1;
+            int file_handle = -1;
+#else
+#   error "Unknown platform"
+#endif
+        };
+
+    private:
+        void internal_open_regular_file(const stdfs::path& file_path, /*out*/send_file_context& ctx, /*out*/basic_file_info& fi);  // throws transfer_error
+        void prepare_transfer_regular_file(const stdfs::path& file_path);  // throws transfer_error
+        void prepare_transfer_directory(const stdfs::path& dir_path);  // throws transfer_error
 
     private:
         static constexpr const uint32_t TRANSFER_BLOCK_SIZE_INIT = 1024 * 1024 * 1;  // block: 1 MB
@@ -73,14 +124,7 @@ namespace xcp
         const bool _is_transfer_block_size_fixed;
         const uint32_t _init_transfer_block_size;
 
-        std::atomic_uint64_t _curr_offset = 0;
-#if PLATFORM_WINDOWS
-        HANDLE _file_handle = INVALID_HANDLE_VALUE;
-#elif PLATFORM_LINUX
-        int _file_handle = -1;
-#else
-#   error "Unknown platform"
-#endif
+        std::vector<send_file_context> _send_ctx;
     };
 
     struct transfer_destination : transfer_base
@@ -90,7 +134,7 @@ namespace xcp
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_destination)
 
         explicit transfer_destination(std::string dst_path);  // throws transfer_error
-        void init_file(const basic_file_info& file_info, size_t total_channel_repeats_count);  // throws transfer_error
+        void init_transfer_info(const basic_transfer_info& transfer_info, size_t total_channel_repeats_count);  // throws transfer_error
 
         bool invoke_portal(std::shared_ptr<infra::os_socket_t> sock) override;
         bool invoke_channel(std::shared_ptr<infra::os_socket_t> sock) override;
@@ -99,19 +143,95 @@ namespace xcp
         ~transfer_destination() noexcept override final { this->async_dispose(true); }
 
     private:
-        infra::gate_guard _gate_all_channels_finished { };
+        struct recv_file_context
+        {
+        public:
+            XCP_DISABLE_COPY_CONSTRUCTOR(recv_file_context)
+            XCP_DEFAULT_MOVE_ASSIGN(recv_file_context)
+            recv_file_context() = default;
+            recv_file_context(recv_file_context&& other) noexcept
+            {
+                // Move dst_file_mapped, mapped_length
+                if (this->dst_file_mapped != nullptr) {
+                    this->unmap_file();
+                }
+                this->dst_file_mapped = other.dst_file_mapped;
+                other.dst_file_mapped = nullptr;
+                this->mapped_length = other.mapped_length;
+                other.mapped_length = 0;
 
-        const std::string _requested_dst_path;
-        stdfs::path _dst_file_path;
+                // Move file_handle
+                if (this->file_handle != INVALID_FILE_HANDLE) {
+                    this->close_handle();
+                }
+                this->file_handle = other.file_handle;
+                other.file_handle = INVALID_FILE_HANDLE;
+            }
 
-        void* _dst_file_mapped = nullptr;
+            void close_handle() noexcept
+            {
 #if PLATFORM_WINDOWS
-        HANDLE _file_handle = INVALID_HANDLE_VALUE;
+                if (this->file_handle != INVALID_FILE_HANDLE) {
+                    (void)CloseHandle(this->file_handle);
+                    this->file_handle = INVALID_FILE_HANDLE;
+                }
 #elif PLATFORM_LINUX
-        int _file_handle = -1;
+                if (this->file_handle != INVALID_FILE_HANDLE) {
+                    (void)close(this->file_handle);
+                    this->file_handle = INVALID_FILE_HANDLE;
+                }
 #else
 #   error "Unknown platform"
 #endif
+            }
+
+            void unmap_file() noexcept
+            {
+#if PLATFORM_WINDOWS
+                if (this->dst_file_mapped != nullptr) {
+                    (void)FlushViewOfFile(this->dst_file_mapped, mapped_length);
+                    (void)UnmapViewOfFile(this->dst_file_mapped);
+                    this->dst_file_mapped = nullptr;
+                    this->mapped_length = 0;
+                }
+#elif PLATFORM_LINUX
+                if (this->file_handle != INVALID_FILE_HANDLE) {
+                    msync(this->dst_file_mapped, this->mapped_length, MS_ASYNC);
+                    munmap(this->dst_file_mapped, this->mapped_length);
+                    this->dst_file_mapped = nullptr;
+                    this->mapped_length = 0;
+                }
+#else
+#   error "Unknown platform"
+#endif
+            }
+
+        public:
+            size_t mapped_length = 0;
+            void* dst_file_mapped = nullptr;
+#if PLATFORM_WINDOWS
+            static constexpr const HANDLE INVALID_FILE_HANDLE = INVALID_HANDLE_VALUE;
+            HANDLE file_handle = INVALID_HANDLE_VALUE;
+#elif PLATFORM_LINUX
+            static constexpr const int INVALID_FILE_HANDLE = -1;
+            int file_handle = -1;
+#else
+#   error "Unknown platform"
+#endif
+        };
+
+        
+    private:
+        void internal_open_regular_file(const stdfs::path& file_path, const basic_file_info& fi, /*out*/recv_file_context& ctx);  // throws transfer_error
+        void prepare_transfer_regular_file();  // throws transfer_error
+        void prepare_transfer_directory();  // throws transfer_error
+
+    private:
+        infra::gate_guard _gate_all_channels_finished { };
+
+        const stdfs::path _requested_dst_path;
+
+        std::vector<recv_file_context> _recv_ctx;
     };
 
 }  // namespace xcp

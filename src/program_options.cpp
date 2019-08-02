@@ -163,6 +163,12 @@ void xcp::xcp_program_options::add_options(CLI::App& app)
     opt_to->type_name("<to>");
     opt_to->required();
 
+    [[maybe_unused]]
+    CLI::Option* opt_recursive = app.add_flag(
+        "-r,--recursive",
+        this->arg_recursive,
+        "Transfer a directory recursively");
+
     CLI::Option* opt_user = app.add_option(
         "-u,--user",
         this->arg_user,
@@ -247,6 +253,12 @@ bool xcp::xcp_program_options::post_process()
         }
     }
 
+    //----------------------------------------------------------------
+    // arg_recursive
+    //----------------------------------------------------------------
+    if (arg_recursive) {
+        LOG_DEBUG("Transfer recursively if source is a directory");
+    }
 
     //----------------------------------------------------------------
     // arg_user

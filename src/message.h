@@ -28,11 +28,28 @@ namespace xcp
 
     struct basic_file_info
     {
-        std::string relative_path;
-        uint64_t file_size;
-        uint32_t posix_perm;
+        std::string relative_path { };
+        uint64_t file_size = 0;
+        uint32_t posix_perm = 0;
 
         XCP_DEFAULT_SERIALIZATION(relative_path, file_size, posix_perm)
+    };
+
+    struct basic_directory_info
+    {
+        std::string relative_path { };
+        uint32_t posix_perm = 0;
+
+        XCP_DEFAULT_SERIALIZATION(relative_path, posix_perm)
+    };
+
+    struct basic_transfer_info  // both for source and destination
+    {
+        bool source_is_directory;
+        std::vector<basic_directory_info> dirs_info { };
+        std::vector<basic_file_info> files_info { };
+
+        XCP_DEFAULT_SERIALIZATION(source_is_directory, dirs_info, files_info)
     };
 
     enum class message_type : std::uint32_t
@@ -63,9 +80,9 @@ namespace xcp
         std::uint64_t transfer_block_size;
         infra::user_name_t user;
 
-        std::optional<basic_file_info> file_info;  // only if from client to server
+        std::optional<basic_transfer_info> transfer_info;  // only if from client to server
 
-        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, server_path, transfer_block_size, user, file_info)
+        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, server_path, transfer_block_size, user, transfer_info)
     };
 
     struct message_server_transfer_response : message_base<message_type::SERVER_TRANSFER_RESPONSE>
@@ -73,9 +90,9 @@ namespace xcp
         int error_code { };
         std::string error_message;
 
-        std::optional<basic_file_info> file_info;  // only if from server to client
+        std::optional<basic_transfer_info> transfer_info;  // only if from server to client
 
-        XCP_DEFAULT_SERIALIZATION(error_code, error_message, file_info)
+        XCP_DEFAULT_SERIALIZATION(error_code, error_message, transfer_info)
     };
 
     struct message_transfer_destination_finished : message_base<message_type::TRANSFER_DESTINATION_FINISHED>

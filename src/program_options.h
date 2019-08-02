@@ -80,6 +80,7 @@ namespace xcp
         host_path arg_to_path;
         std::optional<uint64_t> arg_transfer_block_size { };
         std::optional<std::string> arg_user { };
+        bool arg_recursive { false };
 
         bool is_from_server_to_client;
         infra::tcp_endpoint server_portal;

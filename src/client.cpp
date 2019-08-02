@@ -380,12 +380,12 @@ void xcp::client_portal_state::fn_thread_work()
         ASSERT(program_options->arg_transfer_block_size.has_value());
         msg.transfer_block_size = program_options->arg_transfer_block_size.value();
         msg.user = program_options->server_user;
-        if (msg.is_from_server_to_client) {
+        if (msg.is_from_server_to_client) {  // from server to client
             msg.server_path = program_options->arg_from_path.path;
         }
         else {  // from client to server
             msg.server_path = program_options->arg_to_path.path;
-            msg.file_info = this->transfer->get_file_info();
+            msg.transfer_info = this->transfer->get_transfer_info();
         }
 
         if (!message_send(sock, msg)) {
@@ -394,7 +394,7 @@ void xcp::client_portal_state::fn_thread_work()
         }
 
         LOG_TRACE("Client portal: sent message_client_transfer_request to peer {}: "
-                  "is_from_server_to_client={}, msg.transfer_block_size={}, user={}",
+                  "is_from_server_to_client={}, transfer_block_size={}, user={}",
                   connected_remote_endpoint.to_string(), msg.is_from_server_to_client, msg.transfer_block_size, msg.user.to_string());
     }
 
@@ -416,9 +416,9 @@ void xcp::client_portal_state::fn_thread_work()
 
         // Init file size if from server to client
         if (program_options->is_from_server_to_client) {  // from server to client
-            ASSERT(msg.file_info.has_value());
+            ASSERT(msg.transfer_info.has_value());
             try {
-                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_file(msg.file_info.value(), total_channel_repeats_count);
+                std::dynamic_pointer_cast<transfer_destination>(this->transfer)->init_transfer_info(msg.transfer_info.value(), total_channel_repeats_count);
             }
             catch(const transfer_error& ex) {
                 LOG_ERROR("Transfer error: {}. errno = {} ({})", ex.error_message, ex.error_code, strerror(ex.error_code));
@@ -426,7 +426,7 @@ void xcp::client_portal_state::fn_thread_work()
             }
         }
         else {  // from client to server
-            ASSERT(!msg.file_info.has_value());
+            ASSERT(!msg.transfer_info.has_value());
         }
     }
 
