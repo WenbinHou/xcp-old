@@ -40,7 +40,7 @@ bool xcp::host_path::parse(const std::string& value)
         const std::string re_valid_hostname = R"((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*(?:[A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])))";
         const std::string re_valid_ipv6 = R"((?:\[(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|::(?:[Ff]{4}(?::0{1,4})?:)?(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9]))\]))";
         const std::string re_valid_host = "(?:" + re_valid_hostname + "|" + re_valid_ipv6 + ")";
-        const std::string re_valid_host_path = "^(?:(?:([^@:]+)@)?(" + re_valid_host + "):)?(.+)$";
+        const std::string re_valid_host_path = "^(?:(?:([^@:]+)@)?(" + re_valid_host + "):)?((?:^.+)|(?:.*))$";
         __re = new std::regex(re_valid_host_path, std::regex::optimize);
     }
 
@@ -90,8 +90,17 @@ bool xcp::host_path::parse(const std::string& value)
             host = std::move(tmp);
     }
 
-    path = match[3].str();
-    if (path.empty()) return false;
+    {
+        path = match[3].str();
+        if (path.empty()) {
+            if (!host.has_value()) {
+                return false;
+            }
+            else {
+                path = "~";
+            }
+        }
+    }
 
     return true;
 }

@@ -199,6 +199,9 @@ void xcp::client_instance::fn_portal()
                 if (tmp.size() >= 2 && tmp[0] == '~' && (tmp[1] == '/' || tmp[1] == '\\')) {
                     tmp = tmp.substr(2);
                 }
+                else if (tmp.size() == 1 && tmp[0] == '~') {
+                    tmp = "";
+                }
                 std::string new_server_path = (home_path / tmp).u8string();
                 LOG_DEBUG("Client #{} portal: server side path {} resolves to {}",
                           this->id, transfer_request.server_path, new_server_path);
