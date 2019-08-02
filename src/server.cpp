@@ -147,6 +147,7 @@ void xcp::client_instance::fn_portal()
         std::string server_path;
         uint64_t transfer_block_size;
         std::optional<basic_transfer_info> transfer_info;
+        bool is_recursive;
         infra::user_name_t user;
     } transfer_request;
     {
@@ -162,6 +163,7 @@ void xcp::client_instance::fn_portal()
         transfer_request.is_from_server_to_client = msg.is_from_server_to_client;
         transfer_request.server_path = std::move(msg.server_path);
         transfer_request.transfer_block_size = msg.transfer_block_size;
+        transfer_request.is_recursive = msg.is_recursive;
         transfer_request.user = std::move(msg.user);
         transfer_request.transfer_info = std::move(msg.transfer_info);
     }
@@ -210,7 +212,8 @@ void xcp::client_instance::fn_portal()
                     ASSERT(!transfer_request.transfer_info.has_value());
                     this->transfer = std::make_shared<transfer_source>(
                         transfer_request.server_path,
-                        transfer_request.transfer_block_size);
+                        transfer_request.transfer_block_size,
+                        transfer_request.is_recursive);
 
                     msg.transfer_info = this->transfer->get_transfer_info();
                 }

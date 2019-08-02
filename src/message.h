@@ -78,11 +78,12 @@ namespace xcp
         bool is_from_server_to_client;
         std::string server_path;
         std::uint64_t transfer_block_size;
+        std::uint64_t is_recursive;
         infra::user_name_t user;
 
         std::optional<basic_transfer_info> transfer_info;  // only if from client to server
 
-        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, server_path, transfer_block_size, user, transfer_info)
+        XCP_DEFAULT_SERIALIZATION(is_from_server_to_client, server_path, transfer_block_size, is_recursive, user, transfer_info)
     };
 
     struct message_server_transfer_response : message_base<message_type::SERVER_TRANSFER_RESPONSE>

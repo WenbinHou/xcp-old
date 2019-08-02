@@ -132,7 +132,10 @@ bool xcp::client_portal_state::init()
         }
         else {  // from client to server
             ASSERT(program_options->arg_transfer_block_size.has_value());
-            this->transfer = std::make_shared<transfer_source>(program_options->arg_from_path.path, program_options->arg_transfer_block_size.value());
+            this->transfer = std::make_shared<transfer_source>(
+                program_options->arg_from_path.path,
+                program_options->arg_transfer_block_size.value(),
+                program_options->arg_recursive);
         }
     }
     catch(const transfer_error& ex) {
@@ -379,6 +382,7 @@ void xcp::client_portal_state::fn_thread_work()
         msg.is_from_server_to_client = program_options->is_from_server_to_client;
         ASSERT(program_options->arg_transfer_block_size.has_value());
         msg.transfer_block_size = program_options->arg_transfer_block_size.value();
+        msg.is_recursive = program_options->arg_recursive;
         msg.user = program_options->server_user;
         if (msg.is_from_server_to_client) {  // from server to client
             msg.server_path = program_options->arg_from_path.path;

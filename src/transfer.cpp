@@ -274,7 +274,7 @@ namespace xcp
         }
     }
 
-    transfer_source::transfer_source(const std::string& src_path, const uint64_t transfer_block_size)
+    transfer_source::transfer_source(const std::string& src_path, const uint64_t transfer_block_size, const bool recursive)
         : _is_transfer_block_size_fixed((transfer_block_size != 0)),
           _init_transfer_block_size((transfer_block_size != 0) ? (uint32_t)transfer_block_size : TRANSFER_BLOCK_SIZE_INIT)
     {
@@ -292,6 +292,9 @@ namespace xcp
                 break;
             }
             case stdfs::file_type::directory: {
+                if (!recursive) {
+                    throw transfer_error(EINVAL, "Trying to transfer a directory without specifying \"-r\": " + src_path);
+                }
                 prepare_transfer_directory(src_path);
                 break;
             }
@@ -396,6 +399,15 @@ namespace xcp
                     return false;
                 }
                 LOG_TRACE("Channel: received file block: offset = {}, block_size = {}", offset, block_size);
+
+                const uint64_t file_size = _info->files_info[n_file].file_size;
+                const uint64_t curr_received_size = (ctx.received_size += block_size);
+                ASSERT(curr_received_size <= file_size);
+                if (curr_received_size == file_size) {
+                    LOG_DEBUG("Received file: {}", _info->files_info[n_file].relative_path);
+                    _recv_ctx[n_file].unmap_file();
+                    _recv_ctx[n_file].close_handle();
+                }
             }
 
             // Callback: report progress

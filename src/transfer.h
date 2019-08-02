@@ -57,7 +57,7 @@ namespace xcp
     public:
         XCP_DISABLE_COPY_CONSTRUCTOR(transfer_source)
         XCP_DISABLE_MOVE_CONSTRUCTOR(transfer_source)
-        explicit transfer_source(const std::string& src_path, uint64_t transfer_block_size);  // throws transfer_error
+        explicit transfer_source(const std::string& src_path, uint64_t transfer_block_size, bool recursive);  // throws transfer_error
 
         bool invoke_portal(std::shared_ptr<infra::os_socket_t> sock) override;
         bool invoke_channel(std::shared_ptr<infra::os_socket_t> sock) override;
@@ -151,6 +151,10 @@ namespace xcp
             recv_file_context() = default;
             recv_file_context(recv_file_context&& other) noexcept
             {
+                // Move received_size
+                this->received_size = other.received_size.load();
+                other.received_size = 0;
+
                 // Move dst_file_mapped, mapped_length
                 if (this->dst_file_mapped != nullptr) {
                     this->unmap_file();
@@ -207,6 +211,7 @@ namespace xcp
             }
 
         public:
+            std::atomic_uint64_t received_size = 0;
             size_t mapped_length = 0;
             void* dst_file_mapped = nullptr;
 #if PLATFORM_WINDOWS
