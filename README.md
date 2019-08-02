@@ -29,7 +29,7 @@ Options:
   -V,--version                Print version and exit
   -q,--quiet                  Be more quiet
   -v,--verbose                Be more verbose
-  -P,--port <port>            Server portal port to connect to
+  -P,-p,--port <port>         Server portal port to connect to
   -u,--user <user>            Relative to this user's home directory on server side
   -B,--block <size>:SIZE [b, kb(=1024b), ...]
                               Transfer block size
@@ -45,7 +45,7 @@ Options:
   -V,--version                Print version and exit
   -q,--quiet                  Be more quiet
   -v,--verbose                Be more verbose
-  -p,--portal <endpoint>      Server portal endpoint to bind and listen
+  -P,-p,--portal <endpoint>   Server portal endpoint to bind and listen
   -C,--channel <endpoint> ... Server channels to bind and listen for transportation
 ````
 

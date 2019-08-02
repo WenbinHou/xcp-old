@@ -144,7 +144,7 @@ void xcp::xcp_program_options::add_options(CLI::App& app)
     base_program_options::add_options(app);
 
     CLI::Option* opt_port = app.add_option(
-        "-P,--port",
+        "-P,-p,--port",
         this->arg_port,
         "Server portal port to connect to");
     opt_port->type_name("<port>");
@@ -324,7 +324,7 @@ void xcp::xcpd_program_options::add_options(CLI::App& app)
     base_program_options::add_options(app);
 
     CLI::Option* opt_portal = app.add_option(
-        "-p,--portal",
+        "-P,-p,--portal",
         this->arg_portal,
         "Server portal endpoint to bind and listen");
     opt_portal->type_name("<endpoint>");
