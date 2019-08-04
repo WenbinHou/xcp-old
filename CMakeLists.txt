@@ -22,7 +22,7 @@ endif()
 #===============================================================================
 project(
     xcp
-    VERSION 0.0.2
+    VERSION 0.0.3
     LANGUAGES C CXX)
 message(STATUS "[xcp] Build version: ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
 

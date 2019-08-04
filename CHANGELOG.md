@@ -1,5 +1,7 @@
 # CHANGELOG
 
+### 0.0.3 (TBD)
+
 ### 0.0.2 (August 4, 2019)
 
 - Support transferring directory recursively
