@@ -1,7 +1,9 @@
 # CHANGELOG
 
-### 0.0.2 (TBD)
+### 0.0.2 (August 4, 2019)
 
+- Support transferring directory recursively
+- Add reporting transfer progress
 - Add protocol version negotiation on portal
 - Support sharing the same port for portal and channels
 - Support TCP\_FASTOPEN on Linux
